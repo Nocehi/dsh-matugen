@@ -2,5 +2,3 @@
   name: dsh-matugen
   config:
     palettePath: !!js process.env.DSH_MATUGEN_PALETTE || process.env.HOME + '/.cache/DankMaterialShell/dms-colors.json'
-    route: /dsh-matugen/palette
-    pollMs: 1000
