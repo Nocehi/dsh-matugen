@@ -51,7 +51,7 @@ The host reads:
 ~/.cache/DankMaterialShell/dms-colors.json
 ```
 
-Override it with either the Cordis row config or:
+Override it with either the Host Cordis row config or:
 
 ```sh
 export DSH_MATUGEN_PALETTE=/path/to/dms-colors.json
@@ -61,23 +61,52 @@ DMS itself generates `colors.dark`, `colors.light`, and the optional `dank16`
 palette in this file. `dsh-matugen` never invokes Matugen when using the DMS
 provider.
 
+## Build the DSH browser half
+
+DSH Web does not import plugin client source directly. Its Client Modules host
+resolves `exports["./client"]` and serves a built lazy-CJS artifact whose script
+registers a factory with `window.__ModuleLoader__`.
+
+`dsh-matugen` therefore builds `lib/client.js` with the same handoff shape:
+
+```sh
+npm install --ignore-scripts
+npm run build
+```
+
+`npm run check` builds the artifact and then verifies that it registers exactly
+one `dsh-matugen` factory and materializes without undeclared external client
+dependencies.
+
 ## DSH composition
 
 The package has a Node host entry and a Web client entry. The host half needs
 `ctx.webServer`; the client half declares an injection on
 `@deepseek-ai/dsh-client-ui-theme` and uses its public `ctx.theme` service.
 
-Once the package is resolvable by the DSH process, add the row from
-[`examples/cordis.patch.yml`](examples/cordis.patch.yml) to your composition:
+Once the package is resolvable by the DSH process and `lib/client.js` has been
+built, add the row from [`examples/cordis.patch.yml`](examples/cordis.patch.yml)
+to your composition:
 
 ```yaml
 - id: dsh-matugen
   name: dsh-matugen
   config:
     palettePath: !!js process.env.DSH_MATUGEN_PALETTE || process.env.HOME + '/.cache/DankMaterialShell/dms-colors.json'
-    route: /dsh-matugen/palette
-    pollMs: 1000
 ```
+
+The browser bridge geometry is intentionally package-fixed in v0:
+
+```text
+route   = /dsh-matugen/palette
+poll    = 1000 ms
+source  = dsh-matugen
+```
+
+DSH's Web boot graph carries package identity/dependency information but does
+not copy the Host Loader row's config into the browser fiber. Pinning these
+three values avoids a fake configuration surface where Host and Client could
+disagree. Host-only `palettePath` and `maxPaletteBytes` remain configurable.
 
 The bridge endpoint is read-only and intentionally lives outside `/api`: it
 exposes normalized color tokens only, never the configured filesystem path or
@@ -86,7 +115,8 @@ a reverse-proxied/Tailscale-served DSH Web use the same origin automatically.
 
 ## Development
 
-Requires Node 22+ and has no runtime npm dependencies.
+Requires Node 22+ and has no runtime npm dependencies. `tsdown` is development
+only and emits the DSH-compatible browser artifact.
 
 ```sh
 npm run check
