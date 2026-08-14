@@ -3,7 +3,12 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { createPaletteHandler, readDmsSnapshot } from '../src/index.js'
+import {
+  BRIDGE_ROUTE,
+  createPaletteHandler,
+  normalizeHostConfig,
+  readDmsSnapshot,
+} from '../src/index.js'
 
 function palette() {
   const shared = {
@@ -40,6 +45,12 @@ function fakeResponse() {
     },
   }
 }
+
+test('host transport route is fixed and fake cross-face config fails closed', () => {
+  assert.equal(BRIDGE_ROUTE, '/dsh-matugen/palette')
+  assert.throws(() => normalizeHostConfig({ route: '/other' }), /unknown Host config field "route"/u)
+  assert.throws(() => normalizeHostConfig({ pollMs: 250 }), /unknown Host config field "pollMs"/u)
+})
 
 test('host snapshot hashes normalized semantic tokens', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-matugen-'))
