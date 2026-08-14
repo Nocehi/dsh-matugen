@@ -12,8 +12,8 @@ export default defineConfig({
   dts: false,
   sourcemap: true,
   clean: true,
-  noExternal: () => true,
   outputOptions: {
+    exports: 'named',
     entryFileNames: 'client.js',
     banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(id)}, factory: (require) => {`,
     footer: 'return module.exports; } });',
