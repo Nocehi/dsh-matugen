@@ -10,7 +10,7 @@ import {
 } from './core.js'
 
 export const inject = ['webServer']
-export const DEFAULT_ROUTE = '/dsh-matugen/palette'
+export const BRIDGE_ROUTE = '/dsh-matugen/palette'
 export const DEFAULT_MAX_BYTES = 256 * 1024
 export const DEFAULT_DMS_PALETTE = join(homedir(), '.cache', 'DankMaterialShell', 'dms-colors.json')
 
@@ -20,14 +20,6 @@ function palettePath(value) {
   if (value === '~') return homedir()
   if (value.startsWith('~/')) return join(homedir(), value.slice(2))
   return isAbsolute(value) ? value : resolve(value)
-}
-
-function routePath(value) {
-  const route = value ?? DEFAULT_ROUTE
-  if (typeof route !== 'string' || route.length < 2 || !route.startsWith('/') || route.endsWith('/') || route.includes('?') || route.includes('#')) {
-    throw new TypeError('dsh-matugen: route must be an absolute non-root pathname without a trailing slash, query, or fragment')
-  }
-  return route
 }
 
 function byteLimit(value) {
@@ -40,9 +32,12 @@ function byteLimit(value) {
 
 export function normalizeHostConfig(config = {}) {
   if (config === null || typeof config !== 'object' || Array.isArray(config)) throw new TypeError('dsh-matugen: config must be an object')
+  const unknown = Object.keys(config).filter(key => key !== 'palettePath' && key !== 'maxPaletteBytes')
+  if (unknown.length > 0) {
+    throw new TypeError(`dsh-matugen: unknown Host config field ${JSON.stringify(unknown[0])}`)
+  }
   return Object.freeze({
     palettePath: palettePath(config.palettePath),
-    route: routePath(config.route),
     maxPaletteBytes: byteLimit(config.maxPaletteBytes),
   })
 }
@@ -110,13 +105,13 @@ export function createPaletteHandler(config = {}) {
   }
 }
 
-/** Host half: expose only normalized palette tokens on the existing DSH Web server. */
+/** Host half: expose only normalized palette tokens on the fixed browser contract route. */
 export function apply(ctx, config = {}) {
   const normalized = normalizeHostConfig(config)
   ctx.effect(
     () => ctx.webServer.register({
       kind: 'exact',
-      path: normalized.route,
+      path: BRIDGE_ROUTE,
       handler: createPaletteHandler(normalized),
     }),
     'dsh-matugen: palette route',
