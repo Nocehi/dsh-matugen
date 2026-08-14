@@ -6,19 +6,23 @@
   "main": "./src/index.js",
   "exports": {
     ".": "./src/index.js",
-    "./client": "./src/client.js",
+    "./client": "./lib/client.js",
     "./core": "./src/core.js",
     "./package.json": "./package.json"
   },
   "files": [
+    "lib",
     "src",
     "examples",
+    "docs",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
+    "build": "tsdown --config tsdown.config.mjs",
     "test": "node --test tests/*.test.js",
-    "check": "node --check src/core.js && node --check src/index.js && node --check src/client.js && npm test"
+    "test:artifact": "node --test tests/client-bundle.test.js",
+    "check": "node --check src/core.js && node --check src/index.js && node --check src/client.js && npm run build && npm test"
   },
   "engines": {
     "node": ">=22"
@@ -36,5 +40,8 @@
       "platform": "web",
       "immediately": true
     }
+  },
+  "devDependencies": {
+    "tsdown": "^0.22.2"
   }
 }
