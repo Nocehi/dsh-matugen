@@ -125,5 +125,3 @@ export function apply(ctx) {
     }
   }, 'dsh-matugen: palette sync')
 }
-
-export default apply
