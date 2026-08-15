@@ -19,12 +19,12 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsdown --config tsdown.config.mjs",
+    "build": "node scripts/build-client.mjs",
     "prepare": "npm run build",
     "test": "node --test tests/client-bundle.test.js tests/client.test.js tests/core.test.js tests/host.test.js",
     "test:artifact": "node --test tests/client-bundle.test.js",
     "test:rc6": "node --test tests/rc6-runtime.test.js",
-    "check": "node --check src/core.js && node --check src/index.js && node --check src/client.js && npm run build && npm test"
+    "check": "node --check src/core.js && node --check src/index.js && node --check src/client.js && node --check scripts/build-client.mjs && npm run build && npm test"
   },
   "engines": {
     "node": ">=22"
@@ -43,8 +43,5 @@
       "platform": "web",
       "immediately": true
     }
-  },
-  "devDependencies": {
-    "tsdown": "0.22.14"
   }
 }
