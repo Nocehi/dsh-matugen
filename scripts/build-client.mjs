@@ -8,7 +8,7 @@ const clientPath = resolve(root, 'src/client.js')
 const outputPath = resolve(root, 'lib/client.js')
 const CLIENT_IMPORT = "import { verifyBridgePayload } from './core.js'\n"
 const DECLARATION_EXPORT = /^export (?:const|class|function|async function) [A-Za-z_$][A-Za-z0-9_$]*/u
-const DYNAMIC_IMPORT = /\bimport\s*\(/u
+const DYNAMIC_IMPORT = /\bimport(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r\n?|\n|$))*\(/u
 
 function assertNoDynamicImport(source, label) {
   if (DYNAMIC_IMPORT.test(source)) {

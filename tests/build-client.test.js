@@ -29,24 +29,32 @@ async function exists(path) {
   }
 }
 
-test('deterministic builder rejects dynamic import()', async () => {
-  const temp = await mkdtemp(join(tmpdir(), 'dsh-matugen-build-'))
-  try {
-    await copyFixture(temp)
-    const clientPath = join(temp, 'src/client.js')
-    const source = await readFile(clientPath, 'utf8')
-    await writeFile(clientPath, `${source}\nvoid import('./escape.js')\n`)
+const dynamicImportCases = [
+  ['direct', "void import('./escape.js')"],
+  ['block-comment trivia', "void import/*comment*/('./escape.js')"],
+  ['line-comment trivia', "void import // comment\n('./escape.js')"],
+]
 
-    const result = spawnSync(
-      process.execPath,
-      [join(temp, 'scripts/build-client.mjs')],
-      { cwd: temp, encoding: 'utf8' },
-    )
+for (const [label, statement] of dynamicImportCases) {
+  test(`deterministic builder rejects ${label} dynamic import()`, async () => {
+    const temp = await mkdtemp(join(tmpdir(), 'dsh-matugen-build-'))
+    try {
+      await copyFixture(temp)
+      const clientPath = join(temp, 'src/client.js')
+      const source = await readFile(clientPath, 'utf8')
+      await writeFile(clientPath, `${source}\n${statement}\n`)
 
-    assert.notEqual(result.status, 0)
-    assert.match(result.stderr, /dynamic import\(\) is forbidden in src\/client\.js/u)
-    assert.equal(await exists(join(temp, 'lib/client.js')), false)
-  } finally {
-    await rm(temp, { recursive: true, force: true })
-  }
-})
+      const result = spawnSync(
+        process.execPath,
+        [join(temp, 'scripts/build-client.mjs')],
+        { cwd: temp, encoding: 'utf8' },
+      )
+
+      assert.notEqual(result.status, 0)
+      assert.match(result.stderr, /dynamic import\(\) is forbidden in src\/client\.js/u)
+      assert.equal(await exists(join(temp, 'lib/client.js')), false)
+    } finally {
+      await rm(temp, { recursive: true, force: true })
+    }
+  })
+}
