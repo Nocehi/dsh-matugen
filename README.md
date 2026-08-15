@@ -118,14 +118,16 @@ Git installs run the same builder through `prepare`.
 
 ## DSH composition
 
-Once the package is resolvable by DSH and `lib/client.js` exists, add the row
-from [`examples/cordis.patch.yml`](examples/cordis.patch.yml):
+Once the package is resolvable by DSH and `lib/client.js` exists, insert the Host
+row into the Web profile. During current local dogfood the package is installed
+as a plain profile dependency, so the profile overlay uses an explicit insert:
 
 ```yaml
-- id: dsh-matugen
-  name: dsh-matugen
-  config:
-    palettePath: !!js process.env.DSH_MATUGEN_PALETTE || process.env.HOME + '/.cache/DankMaterialShell/dms-colors.json'
+- insert:
+    - id: dsh-matugen
+      name: dsh-matugen
+      config:
+        palettePath: !!js process.env.DSH_MATUGEN_PALETTE || process.env.HOME + '/.cache/DankMaterialShell/dms-colors.json'
 ```
 
 The Host half injects `ctx.webServer`; the browser half declares the DSH theme
