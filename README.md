@@ -3,26 +3,28 @@
 A small, reversible palette bridge from **DankMaterialShell / Matugen** to the
 **DeepSeek Harness Web** theme runtime.
 
-The v0 path is deliberately boring:
-
 ```text
-DMS writes dms-colors.json atomically
+DMS atomically replaces dms-colors.json
         ↓
-DSH host plugin reads + validates it
+DSH Host opens one bounded file descriptor
         ↓
-GET /dsh-matugen/palette (same DSH Web origin)
+validate → Material roles → --dsw-* light/dark tokens
         ↓
-browser plugin polls a semantic revision
+GET /dsh-matugen/palette
         ↓
-ctx.theme.overrideTokens("dsh-matugen", { light, dark })
+SHA-256 content identity + ETag
         ↓
-existing DSH UI repaints through theme/change
+DSH browser verifies the digest
+        ↓
+ctx.theme.overrideTokens("dsh-matugen", tokens)
+        ↓
+theme/change → existing UI repaints
 ```
 
-No DOM patching, no CSS injection into DSH dist, no HMR requirement, and no
-writes back into DMS or Matugen state.
+No DOM patching, no edit to the DSH dist, no HMR requirement, no second daemon,
+and no writes back into DMS or Matugen state.
 
-## What v0 maps
+## What v0.1 maps
 
 | DMS / Material role | DSH token |
 |---|---|
@@ -39,54 +41,82 @@ writes back into DMS or Matugen state.
 | optional `dank16.color2` | `--dsw-alias-state-success-primary` |
 | optional `dank16.color3` | `--dsw-alias-state-warn-primary` |
 
-Every DSH override carries **both** light and dark values. Missing required
-Material roles, malformed JSON, over-sized palettes, and non-hex colors fail
-closed; the browser keeps the last good theme layer and retries later.
+Bridge protocol v1 requires the complete required token set and rejects unknown
+tokens. Every override contains both `light` and `dark` values. The browser
+recomputes SHA-256 over the canonical token layer before treating `revision` as
+content identity.
 
-## Default source
+## DMS source
 
-The host reads:
+The Host reads by default:
 
 ```text
 ~/.cache/DankMaterialShell/dms-colors.json
 ```
 
-Override it with either the Host Cordis row config or:
+Override it through the Host Cordis row or environment:
 
 ```sh
 export DSH_MATUGEN_PALETTE=/path/to/dms-colors.json
 ```
 
-DMS itself generates `colors.dark`, `colors.light`, and the optional `dank16`
-palette in this file. `dsh-matugen` never invokes Matugen when using the DMS
-provider.
+Environment and explicit paths use the same `~`/relative-path normalization.
+The Host opens the selected path once, requires a regular file, rejects a file
+larger than `maxPaletteBytes` before JSON parsing, and reads at most one byte
+past that bound through the same descriptor. DMS atomic replacement therefore
+produces either a complete old snapshot or a complete new snapshot.
 
-## Build the DSH browser half
+## Browser transport
 
-DSH Web does not import plugin client source directly. Its Client Modules host
-resolves `exports["./client"]` and serves a built lazy-CJS artifact whose script
-registers a factory with `window.__ModuleLoader__`.
+The cross-face values are package-fixed:
 
-`dsh-matugen` therefore builds `lib/client.js` with the same handoff shape:
+```text
+route   = /dsh-matugen/palette
+poll    = 1000 ms
+source  = dsh-matugen
+```
+
+DSH's Web boot graph does not serialize a Host Loader row's config into its
+browser fiber, so making these values look configurable would create a false
+Host/Client contract. `palettePath` and `maxPaletteBytes` remain Host-only.
+
+After the first successful palette the browser sends `If-None-Match`; an
+unchanged semantic palette receives `304`. Transient failures keep the last good
+override layer. Repeated diagnostics are rate-limited in the browser console and
+a later successful sync emits one recovery message.
+
+The Client effect checks its lifecycle after every asynchronous boundary. If a
+response settles after the plugin was disposed, it cannot install an orphan
+ThemeRuntime layer; if disposal races the synchronous install, the just-created
+layer is immediately disposed.
+
+## DSH browser artifact
+
+DSH Web loads a plugin's `exports["./client"]` as a lazy CJS factory registered
+through:
+
+```text
+window.__ModuleLoader__.load({ id: "dsh-matugen", factory })
+```
+
+This repository builds that artifact with a small repo-local Node script:
 
 ```sh
-npm install --ignore-scripts
 npm run build
 ```
 
-`npm run check` builds the artifact and then verifies that it registers exactly
-one `dsh-matugen` factory and materializes without undeclared external client
-dependencies.
+There are **zero npm build/runtime dependencies**. The builder admits only the
+single local `./core.js` import used by `src/client.js`, strips the known ESM
+module surface, emits `lib/client.js`, and fails if the generated browser bundle
+contains `require()`. This removes package-manager dependency resolution from
+the browser-artifact reproducibility boundary.
+
+Git installs run the same builder through `prepare`.
 
 ## DSH composition
 
-The package has a Node host entry and a Web client entry. The host half needs
-`ctx.webServer`; the client half declares an injection on
-`@deepseek-ai/dsh-client-ui-theme` and uses its public `ctx.theme` service.
-
-Once the package is resolvable by the DSH process and `lib/client.js` has been
-built, add the row from [`examples/cordis.patch.yml`](examples/cordis.patch.yml)
-to your composition:
+Once the package is resolvable by DSH and `lib/client.js` exists, add the row
+from [`examples/cordis.patch.yml`](examples/cordis.patch.yml):
 
 ```yaml
 - id: dsh-matugen
@@ -95,39 +125,32 @@ to your composition:
     palettePath: !!js process.env.DSH_MATUGEN_PALETTE || process.env.HOME + '/.cache/DankMaterialShell/dms-colors.json'
 ```
 
-The browser bridge geometry is intentionally package-fixed in v0:
+The Host half injects `ctx.webServer`; the browser half declares the DSH theme
+plugin as its client dependency and collaborates only through `ctx.theme`.
 
-```text
-route   = /dsh-matugen/palette
-poll    = 1000 ms
-source  = dsh-matugen
-```
-
-DSH's Web boot graph carries package identity/dependency information but does
-not copy the Host Loader row's config into the browser fiber. Pinning these
-three values avoids a fake configuration surface where Host and Client could
-disagree. Host-only `palettePath` and `maxPaletteBytes` remain configurable.
-
-The bridge endpoint is read-only and intentionally lives outside `/api`: it
-exposes normalized color tokens only, never the configured filesystem path or
-raw file contents. Because the browser fetch is relative, localhost DSH Web and
-a reverse-proxied/Tailscale-served DSH Web use the same origin automatically.
-
-## Development
-
-Requires Node 22+ and has no runtime npm dependencies. `tsdown` is development
-only and emits the DSH-compatible browser artifact.
+## Verification
 
 ```sh
 npm run check
 ```
 
-The pure mapping/validation core is exported as `dsh-matugen/core` so future
-standalone Matugen providers can reuse the same semantic mapping without
-coupling themselves to DSH Web transport.
+The ordinary gate uses Node only and covers mapping, protocol validation,
+digest verification, bounded reads, conditional GET/HEAD, path non-disclosure,
+client diagnostics, built lazy-module geometry, and the post-disposal race.
+
+CI also runs a separate exact `@deepseek-ai/dsh@0.1.0-rc.6` seam gate. It boots
+the real rc.6 Host `WebServer` and performs an HTTP request through the bridge;
+it additionally checks the exact rc.6 theme package's published
+`overrideTokens(source, ThemeTokenOverrides): () => void` declaration and its
+lazy browser artifact. This is an rc.6 seam test, not a claim that CI has booted
+a full graphical DSH Web session.
+
+The remaining end-to-end dogfood gate is deliberately physical: compose this
+package into the current DSH Web deployment, change the DMS wallpaper/palette,
+and observe the real browser/iPad repaint and unload/reload behavior.
 
 ## Scope
 
-v0 is the **DMS provider + DSH token bridge**, not a replacement DSH UI yet.
-A later `dsh-rice` shell can consume the same palette layer while replacing
-layout/sidebar/conversation presentation independently.
+`dsh-matugen` is the DMS provider + DSH token bridge. A future `dsh-rice` shell
+can consume the same palette contract while replacing layout, sidebar, and
+conversation presentation independently.
