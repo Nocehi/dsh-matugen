@@ -21,7 +21,7 @@
   "scripts": {
     "build": "tsdown --config tsdown.config.mjs",
     "prepare": "npm run build",
-    "test": "node --test tests/*.test.js",
+    "test": "node --test tests/client-bundle.test.js tests/client.test.js tests/core.test.js tests/host.test.js",
     "test:artifact": "node --test tests/client-bundle.test.js",
     "test:rc6": "node --test tests/rc6-runtime.test.js",
     "check": "node --check src/core.js && node --check src/index.js && node --check src/client.js && npm run build && npm test"
@@ -45,7 +45,6 @@
     }
   },
   "devDependencies": {
-    "@deepseek-ai/dsh": "0.1.0-rc.6",
     "tsdown": "0.22.14"
   }
 }
