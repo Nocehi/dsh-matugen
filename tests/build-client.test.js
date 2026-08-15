@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
@@ -16,6 +16,16 @@ async function copyFixture(temp) {
     const target = join(temp, relative)
     await mkdir(dirname(target), { recursive: true })
     await writeFile(target, await readFile(source, 'utf8'))
+  }
+}
+
+async function exists(path) {
+  try {
+    await stat(path)
+    return true
+  } catch (error) {
+    if (error?.code === 'ENOENT') return false
+    throw error
   }
 }
 
@@ -35,6 +45,7 @@ test('deterministic builder rejects dynamic import()', async () => {
 
     assert.notEqual(result.status, 0)
     assert.match(result.stderr, /dynamic import\(\) is forbidden in src\/client\.js/u)
+    assert.equal(await exists(join(temp, 'lib/client.js')), false)
   } finally {
     await rm(temp, { recursive: true, force: true })
   }
