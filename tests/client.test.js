@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import {
   apply,
   BRIDGE_ROUTE,
+  DIAGNOSTIC_INTERVAL_MS,
   POLL_MS,
   SOURCE_ID,
 } from '../src/client.js'
@@ -37,26 +38,38 @@ function palette() {
   return { colors: { light, dark } }
 }
 
+function payload() {
+  const tokens = dmsPaletteToDshTokens(palette())
+  const revision = createHash('sha256').update(canonicalTokenJson(tokens)).digest('hex')
+  return { ok: true, version: 1, provider: 'dms', revision, tokens }
+}
+
+function tick() {
+  return new Promise(resolve => setImmediate(resolve))
+}
+
 test('browser transport geometry is a fixed package contract', () => {
   assert.equal(BRIDGE_ROUTE, '/dsh-matugen/palette')
   assert.equal(POLL_MS, 1000)
   assert.equal(SOURCE_ID, 'dsh-matugen')
+  assert.equal(DIAGNOSTIC_INTERVAL_MS, 60_000)
 })
 
-test('browser applies one reversible ThemeRuntime override layer', async () => {
+test('browser applies one digest-verified reversible ThemeRuntime override layer', async () => {
   const originalFetch = globalThis.fetch
-  const tokens = dmsPaletteToDshTokens(palette())
-  const revision = createHash('sha256').update(canonicalTokenJson(tokens)).digest('hex')
   const calls = []
   let effectCleanup
   let layerDisposed = false
+  let resolveApplied
+  const applied = new Promise(resolve => { resolveApplied = resolve })
 
   globalThis.fetch = async (input, init) => {
     calls.push({ input, init })
     return {
       ok: true,
+      status: 200,
       async json() {
-        return { ok: true, version: 1, provider: 'dms', revision, tokens }
+        return payload()
       },
     }
   }
@@ -66,6 +79,7 @@ test('browser applies one reversible ThemeRuntime override layer', async () => {
       theme: {
         overrideTokens(source, layer) {
           calls.push({ source, layer })
+          resolveApplied()
           return () => { layerDisposed = true }
         },
       },
@@ -74,10 +88,14 @@ test('browser applies one reversible ThemeRuntime override layer', async () => {
       },
     }
     apply(ctx)
-    await new Promise(resolve => setTimeout(resolve, 0))
+    await Promise.race([
+      applied,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('theme layer was not applied')), 250)),
+    ])
 
     assert.equal(calls[0].input, BRIDGE_ROUTE)
     assert.equal(calls[0].init.method, 'GET')
+    assert.equal(calls[0].init.headers, undefined)
     assert.equal(calls[1].source, SOURCE_ID)
     assert.deepEqual(calls[1].layer['--dsw-alias-brand-primary'], {
       light: '#123456',
@@ -88,6 +106,96 @@ test('browser applies one reversible ThemeRuntime override layer', async () => {
     assert.equal(layerDisposed, true)
   } finally {
     globalThis.fetch = originalFetch
+    effectCleanup?.()
+  }
+})
+
+test('dispose while response.json is pending cannot install an orphan theme layer', async () => {
+  const originalFetch = globalThis.fetch
+  let releaseJson
+  const pendingJson = new Promise(resolve => { releaseJson = resolve })
+  let effectCleanup
+  let applied = 0
+  let disposed = 0
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => pendingJson,
+  })
+
+  try {
+    const ctx = {
+      theme: {
+        overrideTokens() {
+          applied += 1
+          return () => { disposed += 1 }
+        },
+      },
+      effect(setup) {
+        effectCleanup = setup()
+      },
+    }
+
+    apply(ctx)
+    await tick()
+    effectCleanup()
+    releaseJson(payload())
+    await tick()
+    await tick()
+
+    assert.equal(applied, 0)
+    assert.equal(disposed, 0)
+  } finally {
+    globalThis.fetch = originalFetch
+    effectCleanup?.()
+  }
+})
+
+test('tampered payload is diagnosed and never reaches ThemeRuntime', async () => {
+  const originalFetch = globalThis.fetch
+  const originalWarn = console.warn
+  const warnings = []
+  let effectCleanup
+  let applied = 0
+  const value = payload()
+  value.tokens = {
+    ...value.tokens,
+    '--dsw-alias-brand-primary': {
+      light: '#000000',
+      dark: '#000000',
+    },
+  }
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    async json() { return value },
+  })
+  console.warn = (...args) => { warnings.push(args) }
+
+  try {
+    const ctx = {
+      theme: {
+        overrideTokens() {
+          applied += 1
+          return () => {}
+        },
+      },
+      effect(setup) {
+        effectCleanup = setup()
+      },
+    }
+    apply(ctx)
+    await tick()
+    effectCleanup()
+
+    assert.equal(applied, 0)
+    assert.equal(warnings.length, 1)
+    assert.match(String(warnings[0][0]), /palette sync degraded/u)
+  } finally {
+    globalThis.fetch = originalFetch
+    console.warn = originalWarn
     effectCleanup?.()
   }
 })
