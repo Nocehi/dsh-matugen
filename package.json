@@ -1,6 +1,6 @@
 {
   "name": "dsh-matugen",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Matugen/DankMaterialShell palette bridge for DeepSeek Harness Web themes",
   "type": "module",
   "main": "./src/index.js",
@@ -23,11 +23,13 @@
     "prepare": "npm run build",
     "test": "node --test tests/*.test.js",
     "test:artifact": "node --test tests/client-bundle.test.js",
+    "test:rc6": "node --test tests/rc6-runtime.test.js",
     "check": "node --check src/core.js && node --check src/index.js && node --check src/client.js && npm run build && npm test"
   },
   "engines": {
     "node": ">=22"
   },
+  "packageManager": "npm@10.9.8",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -43,6 +45,7 @@
     }
   },
   "devDependencies": {
-    "tsdown": "^0.22.2"
+    "@deepseek-ai/dsh": "0.1.0-rc.6",
+    "tsdown": "0.22.14"
   }
 }
