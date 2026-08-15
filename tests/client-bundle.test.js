@@ -23,7 +23,7 @@ test('built client registers one DSH lazy module factory', async () => {
     throw new Error(`unexpected external client dependency: ${specifier}`)
   })
   assert.equal(typeof exports.apply, 'function')
-  assert.equal(exports.default, exports.apply)
+  assert.equal(Object.prototype.hasOwnProperty.call(exports, 'default'), false)
   assert.deepEqual(Array.from(exports.inject), ['theme'])
   assert.equal(exports.SOURCE_ID, 'dsh-matugen')
 })
