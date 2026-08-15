@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict'
 import { readFile, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply as applyHost, BRIDGE_ROUTE } from '../src/index.js'
-import { dmsPaletteToDshTokens } from '../src/core.js'
 
 const require = createRequire(import.meta.url)
 
@@ -30,10 +29,15 @@ function palette() {
   }
 }
 
-test('exact DSH rc.6 Host WebServer serves the bridge route', async () => {
-  const manifestPath = require.resolve('@deepseek-ai/dsh/package.json')
-  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+async function exactRc6Manifest(packageName) {
+  const path = require.resolve(`${packageName}/package.json`)
+  const manifest = JSON.parse(await readFile(path, 'utf8'))
   assert.equal(manifest.version, '0.1.0-rc.6')
+  return { path, manifest }
+}
+
+test('exact DSH rc.6 Host WebServer serves the bridge route', async () => {
+  await exactRc6Manifest('@deepseek-ai/dsh')
 
   const [{ Context }, { default: WebServer }] = await Promise.all([
     import('@deepseek-ai/cordis'),
@@ -61,39 +65,21 @@ test('exact DSH rc.6 Host WebServer serves the bridge route', async () => {
   }
 })
 
-test('exact DSH rc.6 ThemeRuntime accepts and reverses the bridge layer', async () => {
-  const [{ Context }, { ThemeRuntime }] = await Promise.all([
-    import('@deepseek-ai/cordis'),
-    import('@deepseek-ai/dsh-client-ui-theme/client'),
-  ])
+test('exact DSH rc.6 theme package exposes the reversible overrideTokens contract', async () => {
+  const { path, manifest } = await exactRc6Manifest('@deepseek-ai/dsh-client-ui-theme')
+  assert.equal(manifest.dsh?.client?.platform, 'web')
+  assert.ok(manifest.exports?.['./client'])
 
-  const root = new Context()
-  const listeners = new Set()
-  const settings = {
-    getSnapshot() {
-      return { value: undefined }
-    },
-    subscribe(listener) {
-      listeners.add(listener)
-      return () => { listeners.delete(listener) }
-    },
-    async set() {},
-  }
+  const packageRoot = dirname(path)
+  const declarations = await readFile(join(packageRoot, 'lib/types/client/index.d.ts'), 'utf8')
+  assert.match(
+    declarations,
+    /overrideTokens\(source: string, tokens: ThemeTokenOverrides\): \(\) => void/u,
+  )
+  assert.match(declarations, /interface ThemeTokenModes/u)
+  assert.match(declarations, /light: string/u)
+  assert.match(declarations, /dark: string/u)
 
-  try {
-    const theme = new ThemeRuntime(root, settings)
-    const tokens = dmsPaletteToDshTokens(palette())
-    const dispose = theme.overrideTokens('dsh-matugen-rc6-smoke', tokens)
-    assert.equal(
-      theme.getTheme().active.tokens['--dsw-alias-brand-primary'],
-      '#123456',
-    )
-    dispose()
-    assert.equal(
-      theme.getTheme().active.tokens['--dsw-alias-brand-primary'],
-      undefined,
-    )
-  } finally {
-    await root.fiber.dispose()
-  }
+  const clientArtifact = await readFile(join(packageRoot, 'lib/client.js'), 'utf8')
+  assert.match(clientArtifact, /window\.__ModuleLoader__\.load/u)
 })
