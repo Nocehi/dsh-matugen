@@ -7,9 +7,23 @@ const corePath = resolve(root, 'src/core.js')
 const clientPath = resolve(root, 'src/client.js')
 const outputPath = resolve(root, 'lib/client.js')
 const CLIENT_IMPORT = "import { verifyBridgePayload } from './core.js'\n"
+const DECLARATION_EXPORT = /^export (?:const|class|function|async function) [A-Za-z_$][A-Za-z0-9_$]*/u
 
-function stripModuleSyntax(source, label) {
-  const withoutDefault = source.replace(/^export default apply\s*$/mu, '')
+function assertKnownExports(source, label, allowDefault) {
+  for (const line of source.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed.startsWith('export ')) continue
+    if (DECLARATION_EXPORT.test(trimmed)) continue
+    if (allowDefault && /^export default apply\s*;?$/u.test(trimmed)) continue
+    throw new Error(`dsh-matugen build: unsupported export syntax in ${label}: ${JSON.stringify(trimmed)}`)
+  }
+}
+
+function stripModuleSyntax(source, label, allowDefault = false) {
+  assertKnownExports(source, label, allowDefault)
+  const withoutDefault = allowDefault
+    ? source.replace(/^export default apply\s*;?\s*$/gmu, '')
+    : source
   const transformed = withoutDefault.replace(/^export\s+/gmu, '')
   if (/^\s*(?:import|export)\s/mu.test(transformed)) {
     throw new Error(`dsh-matugen build: unsupported ESM syntax remains in ${label}`)
@@ -22,6 +36,9 @@ const [coreSource, clientSource] = await Promise.all([
   readFile(clientPath, 'utf8'),
 ])
 
+if (/^\s*import\s/mu.test(coreSource)) {
+  throw new Error('dsh-matugen build: src/core.js must remain dependency-free')
+}
 if (!clientSource.startsWith(CLIENT_IMPORT)) {
   throw new Error(
     'dsh-matugen build: src/client.js must import only verifyBridgePayload from ./core.js as its first statement',
@@ -34,7 +51,7 @@ if (/^\s*import\s/mu.test(clientBodySource)) {
 }
 
 const core = stripModuleSyntax(coreSource, 'src/core.js')
-const client = stripModuleSyntax(clientBodySource, 'src/client.js')
+const client = stripModuleSyntax(clientBodySource, 'src/client.js', true)
 const publicNames = [
   'inject',
   'SOURCE_ID',
