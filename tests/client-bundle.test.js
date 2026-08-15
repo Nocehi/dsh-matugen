@@ -5,6 +5,9 @@ import { test } from 'node:test'
 
 test('built client registers one DSH lazy module factory', async () => {
   const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
+  assert.doesNotMatch(source, /\brequire\s*\(/u)
+  assert.doesNotMatch(source, /\bimport\s*\(/u)
+
   let registration
   const window = {
     __ModuleLoader__: {
@@ -23,7 +26,7 @@ test('built client registers one DSH lazy module factory', async () => {
     throw new Error(`unexpected external client dependency: ${specifier}`)
   })
   assert.equal(typeof exports.apply, 'function')
-  assert.equal(Object.prototype.hasOwnProperty.call(exports, 'default'), false)
+  assert.equal('default' in exports, false)
   assert.deepEqual(Array.from(exports.inject), ['theme'])
   assert.equal(exports.SOURCE_ID, 'dsh-matugen')
 })
