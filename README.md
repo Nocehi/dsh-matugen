@@ -120,7 +120,8 @@ Git installs run the same builder through `prepare`.
 
 Once the package is resolvable by DSH and `lib/client.js` exists, insert the Host
 row into the Web profile. During current local dogfood the package is installed
-as a plain profile dependency, so the profile overlay uses an explicit insert:
+as a plain profile dependency, so use the checked-in
+[`examples/cordis.patch.yml`](examples/cordis.patch.yml) insert layer:
 
 ```yaml
 - insert:
