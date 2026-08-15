@@ -8,6 +8,13 @@ const clientPath = resolve(root, 'src/client.js')
 const outputPath = resolve(root, 'lib/client.js')
 const CLIENT_IMPORT = "import { verifyBridgePayload } from './core.js'\n"
 const DECLARATION_EXPORT = /^export (?:const|class|function|async function) [A-Za-z_$][A-Za-z0-9_$]*/u
+const DYNAMIC_IMPORT = /\bimport\s*\(/u
+
+function assertNoDynamicImport(source, label) {
+  if (DYNAMIC_IMPORT.test(source)) {
+    throw new Error(`dsh-matugen build: dynamic import() is forbidden in ${label}`)
+  }
+}
 
 function assertKnownExports(source, label) {
   for (const line of source.split('\n')) {
@@ -19,6 +26,7 @@ function assertKnownExports(source, label) {
 }
 
 function stripModuleSyntax(source, label) {
+  assertNoDynamicImport(source, label)
   assertKnownExports(source, label)
   const transformed = source.replace(/^export\s+/gmu, '')
   if (/^\s*(?:import|export)\s/mu.test(transformed)) {
@@ -31,6 +39,9 @@ const [coreSource, clientSource] = await Promise.all([
   readFile(corePath, 'utf8'),
   readFile(clientPath, 'utf8'),
 ])
+
+assertNoDynamicImport(coreSource, 'src/core.js')
+assertNoDynamicImport(clientSource, 'src/client.js')
 
 if (/^\s*import\s/mu.test(coreSource)) {
   throw new Error('dsh-matugen build: src/core.js must remain dependency-free')
@@ -74,6 +85,9 @@ const artifact = [
 
 if (/\brequire\s*\(/u.test(artifact)) {
   throw new Error('dsh-matugen build: generated browser artifact unexpectedly contains require()')
+}
+if (DYNAMIC_IMPORT.test(artifact)) {
+  throw new Error('dsh-matugen build: generated browser artifact unexpectedly contains import()')
 }
 
 await mkdir(dirname(outputPath), { recursive: true })
