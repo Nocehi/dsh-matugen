@@ -4,7 +4,8 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { test } from 'node:test'
-import { apply as applyHost, BRIDGE_ROUTE } from '../src/index.js'
+import * as MatugenHost from '../src/index.js'
+import { BRIDGE_ROUTE } from '../src/index.js'
 
 const require = createRequire(import.meta.url)
 
@@ -36,11 +37,14 @@ async function exactRc6Manifest(packageName) {
   return { path, manifest }
 }
 
-test('exact DSH rc.6 Host WebServer serves the bridge route', async () => {
+test('exact DSH rc.6 Loader preserves Host inject and serves the bridge route', async () => {
   await exactRc6Manifest('@deepseek-ai/dsh')
+  assert.equal(Object.prototype.hasOwnProperty.call(MatugenHost, 'default'), false)
+  assert.deepEqual(MatugenHost.inject, ['webServer'])
 
-  const [{ Context }, { default: WebServer }] = await Promise.all([
+  const [{ Context }, { default: Loader }, { default: WebServer }] = await Promise.all([
     import('@deepseek-ai/cordis'),
+    import('@deepseek-ai/cordis-plugin-loader'),
     import('@deepseek-ai/dsh-host-webserver'),
   ])
 
@@ -50,7 +54,21 @@ test('exact DSH rc.6 Host WebServer serves the bridge route', async () => {
   try {
     await writeFile(path, JSON.stringify(palette()))
     await root.plugin(WebServer, { host: '127.0.0.1', port: 0 })
-    applyHost(root, { palettePath: path })
+    await root.plugin(Loader)
+    root.loader.internal = {
+      version: 'v2',
+      async import(specifier) {
+        if (specifier !== 'dsh-matugen') throw new Error(`unexpected Loader import: ${specifier}`)
+        return MatugenHost
+      },
+    }
+
+    const entryId = await root.loader.create({
+      name: 'dsh-matugen',
+      config: { palettePath: path },
+    })
+    await root.loader.await()
+    assert.ok(root.loader.resolve(entryId).fiber, 'dsh-matugen Loader entry has no fiber')
 
     const response = await fetch(`http://127.0.0.1:${String(root.webServer.port)}${BRIDGE_ROUTE}`)
     assert.equal(response.status, 200)
