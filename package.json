@@ -13,6 +13,7 @@
   "files": [
     "lib",
     "src",
+    "scripts/build-client.mjs",
     "examples",
     "docs",
     "README.md",
