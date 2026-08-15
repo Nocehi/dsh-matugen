@@ -5,6 +5,7 @@ import {
   canonicalTokenJson,
   dmsPaletteToDshTokens,
   validateBridgePayload,
+  verifyBridgePayload,
 } from '../src/core.js'
 
 function palette() {
@@ -41,6 +42,12 @@ function palette() {
   }
 }
 
+function bridgePayload() {
+  const tokens = dmsPaletteToDshTokens(palette())
+  const revision = createHash('sha256').update(canonicalTokenJson(tokens)).digest('hex')
+  return { version: 1, provider: 'dms', revision, tokens, ok: true }
+}
+
 test('maps DMS Material roles into DSH light/dark token overrides', () => {
   const tokens = dmsPaletteToDshTokens(palette())
   assert.deepEqual(tokens['--dsw-alias-bg-base'], { light: '#fff8fb', dark: '#181114' })
@@ -75,13 +82,54 @@ test('canonical token JSON is stable across object insertion order', () => {
   assert.equal(canonicalTokenJson(tokens), canonicalTokenJson(reversed))
 })
 
-test('bridge payload requires a SHA-256 revision and validates both modes', () => {
-  const tokens = dmsPaletteToDshTokens(palette())
-  const revision = createHash('sha256').update(canonicalTokenJson(tokens)).digest('hex')
-  const payload = validateBridgePayload({ version: 1, provider: 'dms', revision, tokens, ok: true })
-  assert.equal(payload.revision, revision)
+test('bridge payload requires the complete v1 token set', () => {
+  const value = bridgePayload()
+  const payload = validateBridgePayload(value)
   assert.deepEqual(payload.tokens['--dsw-alias-label-primary'], {
     light: '#211a1d',
     dark: '#eee0e4',
   })
+
+  const missing = {
+    ...value,
+    tokens: { ...value.tokens },
+  }
+  delete missing.tokens['--dsw-alias-bg-base']
+  assert.throws(
+    () => validateBridgePayload(missing),
+    error => error?.code === 'missing-token',
+  )
+
+  const extra = {
+    ...value,
+    tokens: {
+      ...value.tokens,
+      '--dsw-surprise-token': { light: '#000000', dark: '#ffffff' },
+    },
+  }
+  assert.throws(
+    () => validateBridgePayload(extra),
+    error => error?.code === 'unsupported-token',
+  )
+})
+
+test('browser-side verification binds revision to canonical token bytes', async () => {
+  const value = bridgePayload()
+  const verified = await verifyBridgePayload(value)
+  assert.equal(verified.revision, value.revision)
+
+  const tampered = {
+    ...value,
+    tokens: {
+      ...value.tokens,
+      '--dsw-alias-brand-primary': {
+        light: '#000000',
+        dark: '#000000',
+      },
+    },
+  }
+  await assert.rejects(
+    verifyBridgePayload(tampered),
+    error => error?.code === 'revision-mismatch',
+  )
 })

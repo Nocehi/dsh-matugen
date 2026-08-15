@@ -19,8 +19,13 @@ const OPTIONAL_DANK16_MAP = Object.freeze({
   '--dsw-alias-state-warn-primary': 'color3',
 })
 
+export const REQUIRED_DSH_TOKENS = Object.freeze(Object.keys(DSH_TOKEN_ROLE_MAP).sort())
+export const OPTIONAL_DSH_TOKENS = Object.freeze(Object.keys(OPTIONAL_DANK16_MAP).sort())
+
+const BRIDGE_TOKEN_SET = new Set([...REQUIRED_DSH_TOKENS, ...OPTIONAL_DSH_TOKENS])
 const HEX_COLOR = /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/iu
 const DSH_TOKEN = /^--dsw-[a-z0-9-]+$/u
+const SHA256 = /^[0-9a-f]{64}$/u
 
 export class PaletteError extends Error {
   constructor(code, message) {
@@ -126,7 +131,20 @@ export function validateTokenLayer(value) {
   return Object.freeze(result)
 }
 
-/** Validate the host-to-browser bridge payload before it reaches ThemeRuntime. */
+function validateBridgeTokenSet(tokens) {
+  for (const required of REQUIRED_DSH_TOKENS) {
+    if (!(required in tokens)) {
+      throw new PaletteError('missing-token', `bridge payload is missing required token ${required}`)
+    }
+  }
+  for (const name of Object.keys(tokens)) {
+    if (!BRIDGE_TOKEN_SET.has(name)) {
+      throw new PaletteError('unsupported-token', `bridge payload contains unsupported token ${name}`)
+    }
+  }
+}
+
+/** Validate bridge protocol shape before any asynchronous digest work. */
 export function validateBridgePayload(value) {
   const payload = record(value, 'invalid-payload', 'bridge payload')
   if (payload.version !== BRIDGE_VERSION) {
@@ -135,13 +153,37 @@ export function validateBridgePayload(value) {
   if (payload.provider !== 'dms') {
     throw new PaletteError('unsupported-provider', `unsupported palette provider ${String(payload.provider)}`)
   }
-  if (typeof payload.revision !== 'string' || !/^[0-9a-f]{64}$/u.test(payload.revision)) {
+  if (typeof payload.revision !== 'string' || !SHA256.test(payload.revision)) {
     throw new PaletteError('invalid-revision', 'bridge revision must be a lowercase SHA-256')
   }
+  const tokens = validateTokenLayer(payload.tokens)
+  validateBridgeTokenSet(tokens)
   return Object.freeze({
     version: BRIDGE_VERSION,
     provider: 'dms',
     revision: payload.revision,
-    tokens: validateTokenLayer(payload.tokens),
+    tokens,
   })
+}
+
+function bytesToHex(bytes) {
+  return [...new Uint8Array(bytes)].map(value => value.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * Validate the bridge payload and prove that revision is the SHA-256 digest of
+ * its canonical token layer. The browser treats revision as content identity,
+ * not as an opaque host assertion.
+ */
+export async function verifyBridgePayload(value, cryptoImpl = globalThis.crypto) {
+  const payload = validateBridgePayload(value)
+  if (cryptoImpl?.subtle === undefined || typeof cryptoImpl.subtle.digest !== 'function') {
+    throw new PaletteError('digest-unavailable', 'Web Crypto SHA-256 is required to verify bridge revision')
+  }
+  const encoded = new TextEncoder().encode(canonicalTokenJson(payload.tokens))
+  const actual = bytesToHex(await cryptoImpl.subtle.digest('SHA-256', encoded))
+  if (actual !== payload.revision) {
+    throw new PaletteError('revision-mismatch', 'bridge revision does not match canonical token bytes')
+  }
+  return payload
 }

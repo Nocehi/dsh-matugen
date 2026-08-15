@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
+import { open } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 import {
@@ -15,11 +15,15 @@ export const DEFAULT_MAX_BYTES = 256 * 1024
 export const DEFAULT_DMS_PALETTE = join(homedir(), '.cache', 'DankMaterialShell', 'dms-colors.json')
 
 function palettePath(value) {
-  if (value === undefined) return process.env.DSH_MATUGEN_PALETTE || DEFAULT_DMS_PALETTE
-  if (typeof value !== 'string' || value.trim() === '') throw new TypeError('dsh-matugen: palettePath must be a non-empty string')
-  if (value === '~') return homedir()
-  if (value.startsWith('~/')) return join(homedir(), value.slice(2))
-  return isAbsolute(value) ? value : resolve(value)
+  const selected = value === undefined
+    ? (process.env.DSH_MATUGEN_PALETTE ?? DEFAULT_DMS_PALETTE)
+    : value
+  if (typeof selected !== 'string' || selected.trim() === '') {
+    throw new TypeError('dsh-matugen: palettePath must be a non-empty string')
+  }
+  if (selected === '~') return homedir()
+  if (selected.startsWith('~/')) return join(homedir(), selected.slice(2))
+  return isAbsolute(selected) ? selected : resolve(selected)
 }
 
 function byteLimit(value) {
@@ -42,11 +46,45 @@ export function normalizeHostConfig(config = {}) {
   })
 }
 
-export async function readDmsSnapshot(path, maxBytes = DEFAULT_MAX_BYTES) {
-  const raw = await readFile(path)
-  if (raw.byteLength > maxBytes) {
-    throw new PaletteError('palette-too-large', `DMS palette exceeds ${maxBytes} bytes`)
+async function readBoundedRegularFile(path, maxBytes) {
+  const handle = await open(path, 'r')
+  try {
+    const stat = await handle.stat()
+    if (!stat.isFile()) {
+      throw new PaletteError('palette-not-regular-file', 'DMS palette must be a regular file')
+    }
+    if (stat.size > maxBytes) {
+      throw new PaletteError('palette-too-large', `DMS palette exceeds ${maxBytes} bytes`)
+    }
+
+    // The file may grow after stat(). Read through the already-open descriptor
+    // and cap the total bytes independently of pathname races or producer
+    // replacement. DMS's atomic rename therefore yields either old or new
+    // complete bytes, never an unbounded follow-up read through the pathname.
+    const buffer = Buffer.allocUnsafe(maxBytes + 1)
+    let total = 0
+    while (total <= maxBytes) {
+      const { bytesRead } = await handle.read(
+        buffer,
+        total,
+        maxBytes + 1 - total,
+        total,
+      )
+      if (bytesRead === 0) break
+      total += bytesRead
+      if (total > maxBytes) {
+        throw new PaletteError('palette-too-large', `DMS palette exceeds ${maxBytes} bytes`)
+      }
+    }
+    return buffer.subarray(0, total)
+  } finally {
+    await handle.close()
   }
+}
+
+export async function readDmsSnapshot(path, maxBytes = DEFAULT_MAX_BYTES) {
+  const limit = byteLimit(maxBytes)
+  const raw = await readBoundedRegularFile(path, limit)
   let document
   try {
     document = JSON.parse(raw.toString('utf8'))
@@ -58,7 +96,7 @@ export async function readDmsSnapshot(path, maxBytes = DEFAULT_MAX_BYTES) {
   return Object.freeze({ version: BRIDGE_VERSION, provider: 'dms', revision, tokens })
 }
 
-function responseJson(res, status, body, headers = {}) {
+function responseJson(res, status, body, headers = {}, head = false) {
   const bytes = Buffer.from(`${JSON.stringify(body)}\n`, 'utf8')
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
@@ -66,7 +104,7 @@ function responseJson(res, status, body, headers = {}) {
     'content-length': String(bytes.byteLength),
     ...headers,
   })
-  res.end(bytes)
+  res.end(head ? undefined : bytes)
 }
 
 function unavailableCode(error) {
@@ -75,11 +113,26 @@ function unavailableCode(error) {
   return 'palette-unavailable'
 }
 
+function requestHeader(req, name) {
+  const value = req.headers?.[name]
+  if (Array.isArray(value)) return value.join(',')
+  return typeof value === 'string' ? value : undefined
+}
+
+function etagMatches(value, etag) {
+  if (value === undefined) return false
+  return value.split(',').some(candidate => {
+    const tag = candidate.trim()
+    return tag === '*' || tag === etag || tag === `W/${etag}`
+  })
+}
+
 export function createPaletteHandler(config = {}) {
   const normalized = normalizeHostConfig(config)
   return async (req, res) => {
     const method = req.method ?? 'GET'
-    if (method !== 'GET' && method !== 'HEAD') {
+    const head = method === 'HEAD'
+    if (method !== 'GET' && !head) {
       responseJson(res, 405, { ok: false, code: 'method-not-allowed' }, { allow: 'GET, HEAD' })
       return
     }
@@ -88,7 +141,17 @@ export function createPaletteHandler(config = {}) {
     try {
       snapshot = await readDmsSnapshot(normalized.palettePath, normalized.maxPaletteBytes)
     } catch (error) {
-      responseJson(res, 503, { ok: false, code: unavailableCode(error) })
+      responseJson(res, 503, { ok: false, code: unavailableCode(error) }, {}, head)
+      return
+    }
+
+    const etag = `"${snapshot.revision}"`
+    if (etagMatches(requestHeader(req, 'if-none-match'), etag)) {
+      res.writeHead(304, {
+        'cache-control': 'no-store',
+        etag,
+      })
+      res.end()
       return
     }
 
@@ -98,10 +161,10 @@ export function createPaletteHandler(config = {}) {
       'content-type': 'application/json; charset=utf-8',
       'cache-control': 'no-store',
       'content-length': String(bytes.byteLength),
-      etag: `"${snapshot.revision}"`,
+      etag,
     }
     res.writeHead(200, headers)
-    res.end(method === 'HEAD' ? undefined : bytes)
+    res.end(head ? undefined : bytes)
   }
 }
 
