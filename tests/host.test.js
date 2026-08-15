@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import {
@@ -52,6 +52,22 @@ test('host transport route is fixed and fake cross-face config fails closed', ()
   assert.throws(() => normalizeHostConfig({ pollMs: 250 }), /unknown Host config field "pollMs"/u)
 })
 
+test('environment palette path goes through the same normalization as explicit config', () => {
+  const before = process.env.DSH_MATUGEN_PALETTE
+  try {
+    process.env.DSH_MATUGEN_PALETTE = '~/dsh-matugen-test.json'
+    assert.equal(
+      normalizeHostConfig().palettePath,
+      join(homedir(), 'dsh-matugen-test.json'),
+    )
+    process.env.DSH_MATUGEN_PALETTE = ''
+    assert.throws(() => normalizeHostConfig(), /non-empty string/u)
+  } finally {
+    if (before === undefined) delete process.env.DSH_MATUGEN_PALETTE
+    else process.env.DSH_MATUGEN_PALETTE = before
+  }
+})
+
 test('host snapshot hashes normalized semantic tokens', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-matugen-'))
   const path = join(root, 'dms-colors.json')
@@ -67,7 +83,27 @@ test('host snapshot hashes normalized semantic tokens', async () => {
   }
 })
 
-test('read-only route returns normalized palette and supports HEAD', async () => {
+test('palette read is bounded before JSON parsing and rejects non-regular paths', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-matugen-'))
+  const oversized = join(root, 'oversized.json')
+  const directory = join(root, 'directory')
+  try {
+    await writeFile(oversized, Buffer.alloc(4097, 0x20))
+    await assert.rejects(
+      readDmsSnapshot(oversized, 4096),
+      error => error?.code === 'palette-too-large',
+    )
+    await mkdir(directory)
+    await assert.rejects(
+      readDmsSnapshot(directory, 4096),
+      error => error?.code === 'palette-not-regular-file',
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('read-only route returns normalized palette, supports HEAD, and honors If-None-Match', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-matugen-'))
   const path = join(root, 'dms-colors.json')
   try {
@@ -75,7 +111,7 @@ test('read-only route returns normalized palette and supports HEAD', async () =>
     const handler = createPaletteHandler({ palettePath: path })
 
     const get = fakeResponse()
-    await handler({ method: 'GET' }, get)
+    await handler({ method: 'GET', headers: {} }, get)
     assert.equal(get.status, 200)
     assert.equal(get.headers['cache-control'], 'no-store')
     assert.match(get.headers.etag, /^"[0-9a-f]{64}"$/u)
@@ -84,8 +120,24 @@ test('read-only route returns normalized palette and supports HEAD', async () =>
     assert.equal(body.provider, 'dms')
     assert.equal(body.tokens['--dsw-alias-bg-base'].light, '#ffffff')
 
+    const unchanged = fakeResponse()
+    await handler({
+      method: 'GET',
+      headers: { 'if-none-match': get.headers.etag },
+    }, unchanged)
+    assert.equal(unchanged.status, 304)
+    assert.equal(unchanged.headers.etag, get.headers.etag)
+    assert.equal(unchanged.body.byteLength, 0)
+
+    const weak = fakeResponse()
+    await handler({
+      method: 'GET',
+      headers: { 'if-none-match': `W/${get.headers.etag}` },
+    }, weak)
+    assert.equal(weak.status, 304)
+
     const head = fakeResponse()
-    await handler({ method: 'HEAD' }, head)
+    await handler({ method: 'HEAD', headers: {} }, head)
     assert.equal(head.status, 200)
     assert.equal(head.body.byteLength, 0)
   } finally {
@@ -96,17 +148,25 @@ test('read-only route returns normalized palette and supports HEAD', async () =>
 test('route fails closed without leaking the configured path', async () => {
   const handler = createPaletteHandler({ palettePath: '/definitely/missing/dms-colors.json' })
   const response = fakeResponse()
-  await handler({ method: 'GET' }, response)
+  await handler({ method: 'GET', headers: {} }, response)
   assert.equal(response.status, 503)
   const bodyText = response.body.toString('utf8')
   assert.equal(JSON.parse(bodyText).code, 'palette-not-found')
   assert.doesNotMatch(bodyText, /definitely\/missing/u)
 })
 
+test('HEAD failures have no response body', async () => {
+  const handler = createPaletteHandler({ palettePath: '/definitely/missing/dms-colors.json' })
+  const response = fakeResponse()
+  await handler({ method: 'HEAD', headers: {} }, response)
+  assert.equal(response.status, 503)
+  assert.equal(response.body.byteLength, 0)
+})
+
 test('route is read-only', async () => {
   const handler = createPaletteHandler({ palettePath: '/unused' })
   const response = fakeResponse()
-  await handler({ method: 'POST' }, response)
+  await handler({ method: 'POST', headers: {} }, response)
   assert.equal(response.status, 405)
   assert.equal(response.headers.allow, 'GET, HEAD')
 })
