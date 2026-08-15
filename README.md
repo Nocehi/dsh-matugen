@@ -44,9 +44,9 @@ and no writes back into DMS or Matugen state.
 Bridge protocol v1 requires the complete required token set and rejects unknown
 tokens. Every override contains both `light` and `dark` values. The browser
 recomputes SHA-256 over the canonical token layer before treating `revision` as
-content identity. `SubtleCrypto` is used when available; ordinary HTTP origins
-that do not expose it use the package's dependency-free SHA-256 fallback, so
-revision verification is never skipped.
+content identity. `SubtleCrypto` is used when available; origins that do not
+expose it use the package's dependency-free SHA-256 fallback, so revision
+verification is never skipped.
 
 ## DMS source
 
