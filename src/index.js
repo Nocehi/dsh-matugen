@@ -180,5 +180,3 @@ export function apply(ctx, config = {}) {
     'dsh-matugen: palette route',
   )
 }
-
-export default apply

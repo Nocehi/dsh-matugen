@@ -44,7 +44,9 @@ and no writes back into DMS or Matugen state.
 Bridge protocol v1 requires the complete required token set and rejects unknown
 tokens. Every override contains both `light` and `dark` values. The browser
 recomputes SHA-256 over the canonical token layer before treating `revision` as
-content identity.
+content identity. `SubtleCrypto` is used when available; origins that do not
+expose it use the package's dependency-free SHA-256 fallback, so revision
+verification is never skipped.
 
 ## DMS source
 
@@ -106,27 +108,33 @@ npm run build
 ```
 
 There are **zero npm build/runtime dependencies**. The builder admits only the
-single local `./core.js` import used by `src/client.js`, strips the known ESM
+single local `./core.js` static import used by `src/client.js`, rejects any
+additional static import and every dynamic `import(...)`, strips the known ESM
 module surface, emits `lib/client.js`, and fails if the generated browser bundle
-contains `require()`. This removes package-manager dependency resolution from
-the browser-artifact reproducibility boundary.
+contains either `require()` or `import(...)`. This keeps package-manager and
+runtime dependency resolution outside the browser-artifact boundary.
 
 Git installs run the same builder through `prepare`.
 
 ## DSH composition
 
-Once the package is resolvable by DSH and `lib/client.js` exists, add the row
-from [`examples/cordis.patch.yml`](examples/cordis.patch.yml):
+Once the package is resolvable by DSH and `lib/client.js` exists, insert the Host
+row into the Web profile. During current local dogfood the package is installed
+as a plain profile dependency, so use the checked-in
+[`examples/cordis.patch.yml`](examples/cordis.patch.yml) insert layer:
 
 ```yaml
-- id: dsh-matugen
-  name: dsh-matugen
-  config:
-    palettePath: !!js process.env.DSH_MATUGEN_PALETTE || process.env.HOME + '/.cache/DankMaterialShell/dms-colors.json'
+- insert:
+    - id: dsh-matugen
+      name: dsh-matugen
+      config:
+        palettePath: !!js process.env.DSH_MATUGEN_PALETTE || process.env.HOME + '/.cache/DankMaterialShell/dms-colors.json'
 ```
 
 The Host half injects `ctx.webServer`; the browser half declares the DSH theme
 plugin as its client dependency and collaborates only through `ctx.theme`.
+Both halves are namespace plugins (`inject` + `apply`) with no `default` export,
+so Cordis Loader preserves their injection metadata.
 
 ## Verification
 
@@ -135,12 +143,14 @@ npm run check
 ```
 
 The ordinary gate uses Node only and covers mapping, protocol validation,
-digest verification, bounded reads, conditional GET/HEAD, path non-disclosure,
-client diagnostics, built lazy-module geometry, and the post-disposal race.
+digest verification with and without `SubtleCrypto`, bounded reads, conditional
+GET/HEAD, path non-disclosure, client diagnostics, dynamic-import rejection,
+built lazy-module geometry, and the post-disposal race.
 
 CI also runs a separate exact `@deepseek-ai/dsh@0.1.0-rc.6` seam gate. It boots
-the real rc.6 Host `WebServer` and performs an HTTP request through the bridge;
-it additionally checks the exact rc.6 theme package's published
+the real rc.6 Host `WebServer` and loads the Host plugin through the real Cordis
+Loader before performing an HTTP request through the bridge; it additionally
+checks the exact rc.6 theme package's published
 `overrideTokens(source, ThemeTokenOverrides): () => void` declaration and its
 lazy browser artifact. This is an rc.6 seam test, not a claim that CI has booted
 a full graphical DSH Web session.

@@ -20,7 +20,7 @@ GET /dsh-matugen/palette
 DSH Web Client
   validate schema + token set
         │
-  Web Crypto SHA-256 == revision
+  SHA-256(canonical tokens) == revision
         ▼
 ctx.theme.overrideTokens("dsh-matugen", tokens)
         │
@@ -35,6 +35,7 @@ theme/change → existing presenters repaint
 - The Host exposes normalized theme tokens, not filesystem paths or raw DMS JSON.
 - Bridge v1 is a closed token protocol: all required DSH aliases must exist and unknown names fail closed; the two Dank16 state aliases remain optional as a pair-by-role source.
 - `revision` is content identity, not an opaque sequence number: both Host and browser compute SHA-256 over the same canonical token representation.
+- The browser prefers `SubtleCrypto.digest`; when an ordinary HTTP origin does not expose SubtleCrypto it uses the package's dependency-free SHA-256 implementation instead. Missing Web Crypto therefore never downgrades or skips revision verification.
 - Transient Host/network/protocol failure does not remove the last good browser layer.
 - The browser effect owns exactly one current ThemeRuntime disposer. Lifecycle checks after every await prevent a completed request from publishing after unload; a synchronous install racing unload is immediately reversed.
 - Diagnostics stay browser-local and rate-limited; they add no model-visible prompt/context surface.
@@ -89,16 +90,23 @@ one deliberately tiny source graph:
 src/client.js → ./core.js
 ```
 
-The builder requires that exact first import, rejects additional imports, strips
-the known ESM declarations, wraps the combined local source in the DSH factory
-handoff, and rejects a generated artifact containing `require()`. The artifact
-test executes `lib/client.js` in a fresh VM and materializes its factory with a
-`require` function that throws if called.
+The builder requires that exact first static import, rejects additional static
+imports and every dynamic `import(...)`, strips the known ESM declarations,
+wraps the combined local source in the DSH factory handoff, and rejects a
+generated artifact containing either `require()` or `import(...)`. The browser
+artifact therefore cannot silently grow a package/runtime import boundary.
+
+The Host and browser entry modules are namespace plugins: `inject` and `apply`
+remain sibling exports and there is deliberately no `default` export. Cordis
+Loader unwraps a default export preferentially, so adding `export default apply`
+would discard the namespace injection metadata. Exact rc.6 CI now loads the Host
+entry through the real Cordis Loader rather than hand-calling `apply`, pinning
+this failure mode.
 
 The Web boot graph carries package ids, bundle URLs/revisions, dependency edges,
-and the immediate-prefetch bit. It does not serialize Host Loader-row config
-into the browser fiber. The three cross-face values are therefore package
-contract, not configuration:
+and the immediate-prefetch bit. It does not serialize the Host Loader row's
+plugin config into the browser entry. Therefore v0 deliberately pins the values
+that must agree across Host and Client:
 
 ```text
 route   /dsh-matugen/palette
@@ -106,16 +114,28 @@ poll    1000 ms
 source  dsh-matugen
 ```
 
-## rc.6 compatibility evidence
+Only Host-local facts (`palettePath`, `maxPaletteBytes`) are configurable.
 
-CI has a separate exact `@deepseek-ai/dsh@0.1.0-rc.6` seam job. It:
+## Semantic revision
 
-1. mounts the actual rc.6 `@deepseek-ai/dsh-host-webserver` on an ephemeral loopback port;
-2. mounts the dsh-matugen Host route and performs a real HTTP request;
-3. verifies the installed rc.6 theme package version;
-4. verifies its published `ThemeRuntime.overrideTokens(source, ThemeTokenOverrides): () => void` declaration and `{ light, dark }` mode contract;
-5. verifies the rc.6 theme client export itself is a DSH lazy `window.__ModuleLoader__.load` artifact.
+The revision hashes the normalized token layer in sorted token-name order.
+Whitespace or key-order changes in `dms-colors.json` therefore do not repaint
+the client; a semantic color change does. Browser verification uses the same
+canonical representation and remains mandatory with or without Web Crypto.
 
-The last browser integration boundary remains physical dogfood: a full DSH Web
-boot with this package composed, followed by a real DMS palette change and
-plugin unload/reload. CI does not claim that evidence until it exists.
+## Why an HTTP route
+
+The source palette is a host filesystem artifact while `ThemeRuntime` lives in
+the browser. The existing DSH Web server already owns the browser origin, so a
+small exact GET/HEAD route keeps localhost and reverse-proxied/Tailscale Web
+sessions on the same origin without adding a second daemon, port, CORS policy,
+or DSH business-RPC method.
+
+## Evidence boundary
+
+Repository CI now covers the real Host Loader path, the exact rc.6 WebServer
+route seam, deterministic client artifact closure, digest verification with and
+without SubtleCrypto, and deterministic async diagnostics. It still does not
+claim a full graphical DSH Web boot. Physical dogfood owns the remaining evidence:
+Host composition, browser module activation, palette repaint, and unload/reload
+on the actual deployment.

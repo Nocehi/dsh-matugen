@@ -48,6 +48,13 @@ function tick() {
   return new Promise(resolve => setImmediate(resolve))
 }
 
+function timeout(ms, message) {
+  return new Promise((_, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms)
+    timer.unref?.()
+  })
+}
+
 test('browser transport geometry is a fixed package contract', () => {
   assert.equal(BRIDGE_ROUTE, '/dsh-matugen/palette')
   assert.equal(POLL_MS, 1000)
@@ -90,7 +97,7 @@ test('browser applies one digest-verified reversible ThemeRuntime override layer
     apply(ctx)
     await Promise.race([
       applied,
-      new Promise((_, reject) => setTimeout(() => reject(new Error('theme layer was not applied')), 250)),
+      timeout(250, 'theme layer was not applied'),
     ])
 
     assert.equal(calls[0].input, BRIDGE_ROUTE)
@@ -158,6 +165,8 @@ test('tampered payload is diagnosed and never reaches ThemeRuntime', async () =>
   const warnings = []
   let effectCleanup
   let applied = 0
+  let resolveWarning
+  const warningObserved = new Promise(resolve => { resolveWarning = resolve })
   const value = payload()
   value.tokens = {
     ...value.tokens,
@@ -172,7 +181,10 @@ test('tampered payload is diagnosed and never reaches ThemeRuntime', async () =>
     status: 200,
     async json() { return value },
   })
-  console.warn = (...args) => { warnings.push(args) }
+  console.warn = (...args) => {
+    warnings.push(args)
+    resolveWarning()
+  }
 
   try {
     const ctx = {
@@ -187,12 +199,15 @@ test('tampered payload is diagnosed and never reaches ThemeRuntime', async () =>
       },
     }
     apply(ctx)
-    await tick()
-    effectCleanup()
+    await Promise.race([
+      warningObserved,
+      timeout(250, 'tampered payload diagnostic was not emitted'),
+    ])
 
     assert.equal(applied, 0)
     assert.equal(warnings.length, 1)
     assert.match(String(warnings[0][0]), /palette sync degraded/u)
+    effectCleanup()
   } finally {
     globalThis.fetch = originalFetch
     console.warn = originalWarn

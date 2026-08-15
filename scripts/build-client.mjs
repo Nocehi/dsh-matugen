@@ -8,23 +8,27 @@ const clientPath = resolve(root, 'src/client.js')
 const outputPath = resolve(root, 'lib/client.js')
 const CLIENT_IMPORT = "import { verifyBridgePayload } from './core.js'\n"
 const DECLARATION_EXPORT = /^export (?:const|class|function|async function) [A-Za-z_$][A-Za-z0-9_$]*/u
+const DYNAMIC_IMPORT = /\bimport(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r\n?|\n|$))*\(/u
 
-function assertKnownExports(source, label, allowDefault) {
+function assertNoDynamicImport(source, label) {
+  if (DYNAMIC_IMPORT.test(source)) {
+    throw new Error(`dsh-matugen build: dynamic import() is forbidden in ${label}`)
+  }
+}
+
+function assertKnownExports(source, label) {
   for (const line of source.split('\n')) {
     const trimmed = line.trim()
     if (!trimmed.startsWith('export ')) continue
     if (DECLARATION_EXPORT.test(trimmed)) continue
-    if (allowDefault && /^export default apply\s*;?$/u.test(trimmed)) continue
     throw new Error(`dsh-matugen build: unsupported export syntax in ${label}: ${JSON.stringify(trimmed)}`)
   }
 }
 
-function stripModuleSyntax(source, label, allowDefault = false) {
-  assertKnownExports(source, label, allowDefault)
-  const withoutDefault = allowDefault
-    ? source.replace(/^export default apply\s*;?\s*$/gmu, '')
-    : source
-  const transformed = withoutDefault.replace(/^export\s+/gmu, '')
+function stripModuleSyntax(source, label) {
+  assertNoDynamicImport(source, label)
+  assertKnownExports(source, label)
+  const transformed = source.replace(/^export\s+/gmu, '')
   if (/^\s*(?:import|export)\s/mu.test(transformed)) {
     throw new Error(`dsh-matugen build: unsupported ESM syntax remains in ${label}`)
   }
@@ -35,6 +39,9 @@ const [coreSource, clientSource] = await Promise.all([
   readFile(corePath, 'utf8'),
   readFile(clientPath, 'utf8'),
 ])
+
+assertNoDynamicImport(coreSource, 'src/core.js')
+assertNoDynamicImport(clientSource, 'src/client.js')
 
 if (/^\s*import\s/mu.test(coreSource)) {
   throw new Error('dsh-matugen build: src/core.js must remain dependency-free')
@@ -51,7 +58,7 @@ if (/^\s*import\s/mu.test(clientBodySource)) {
 }
 
 const core = stripModuleSyntax(coreSource, 'src/core.js')
-const client = stripModuleSyntax(clientBodySource, 'src/client.js', true)
+const client = stripModuleSyntax(clientBodySource, 'src/client.js')
 const publicNames = [
   'inject',
   'SOURCE_ID',
@@ -70,7 +77,7 @@ const artifact = [
   '',
   client,
   '',
-  `module.exports = { ${publicNames.join(', ')}, default: apply };`,
+  `module.exports = { ${publicNames.join(', ')} };`,
   'return module.exports;',
   '} });',
   '',
@@ -78,6 +85,9 @@ const artifact = [
 
 if (/\brequire\s*\(/u.test(artifact)) {
   throw new Error('dsh-matugen build: generated browser artifact unexpectedly contains require()')
+}
+if (DYNAMIC_IMPORT.test(artifact)) {
+  throw new Error('dsh-matugen build: generated browser artifact unexpectedly contains import()')
 }
 
 await mkdir(dirname(outputPath), { recursive: true })
