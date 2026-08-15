@@ -99,8 +99,9 @@ artifact therefore cannot silently grow a package/runtime import boundary.
 The Host and browser entry modules are namespace plugins: `inject` and `apply`
 remain sibling exports and there is deliberately no `default` export. Cordis
 Loader unwraps a default export preferentially, so adding `export default apply`
-would discard the namespace injection metadata and is covered by the real-Loader
-rc.6 regression.
+would discard the namespace injection metadata. Exact rc.6 CI now loads the Host
+entry through the real Cordis Loader rather than hand-calling `apply`, pinning
+this failure mode.
 
 The Web boot graph carries package ids, bundle URLs/revisions, dependency edges,
 and the immediate-prefetch bit. It does not serialize the Host Loader row's
@@ -129,3 +130,12 @@ the browser. The existing DSH Web server already owns the browser origin, so a
 small exact GET/HEAD route keeps localhost and reverse-proxied/Tailscale Web
 sessions on the same origin without adding a second daemon, port, CORS policy,
 or DSH business-RPC method.
+
+## Evidence boundary
+
+Repository CI now covers the real Host Loader path, the exact rc.6 WebServer
+route seam, deterministic client artifact closure, digest verification with and
+without SubtleCrypto, and deterministic async diagnostics. It still does not
+claim a full graphical DSH Web boot. Physical dogfood owns the remaining evidence:
+Host composition, browser module activation, palette repaint, and unload/reload
+on the actual deployment.
