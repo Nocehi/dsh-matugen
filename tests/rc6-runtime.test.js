@@ -74,9 +74,11 @@ test('exact DSH rc.6 Loader preserves Host inject and serves the bridge route', 
     assert.equal(response.status, 200)
     const body = await response.json()
     assert.equal(body.ok, true)
-    assert.equal(body.version, 1)
+    assert.equal(body.version, 2)
     assert.equal(body.provider, 'dms')
     assert.equal(body.tokens['--dsw-alias-brand-primary'].light, '#123456')
+    assert.equal(body.tokens['--dsw-alias-state-business-primary'].light, '#123456')
+    assert.equal(body.tokens['--dsw-alias-button-info-fill'].light, '#123456')
   } finally {
     await root.fiber.dispose()
     await rm(temp, { recursive: true, force: true })

@@ -8,7 +8,7 @@ import {
   POLL_MS,
   SOURCE_ID,
 } from '../src/client.js'
-import { canonicalTokenJson, dmsPaletteToDshTokens } from '../src/core.js'
+import { BRIDGE_VERSION, canonicalTokenJson, dmsPaletteToDshTokens } from '../src/core.js'
 
 function palette() {
   const light = {
@@ -41,7 +41,7 @@ function palette() {
 function payload() {
   const tokens = dmsPaletteToDshTokens(palette())
   const revision = createHash('sha256').update(canonicalTokenJson(tokens)).digest('hex')
-  return { ok: true, version: 1, provider: 'dms', revision, tokens }
+  return { ok: true, version: BRIDGE_VERSION, provider: 'dms', revision, tokens }
 }
 
 function tick() {
@@ -105,6 +105,14 @@ test('browser applies one digest-verified reversible ThemeRuntime override layer
     assert.equal(calls[0].init.headers, undefined)
     assert.equal(calls[1].source, SOURCE_ID)
     assert.deepEqual(calls[1].layer['--dsw-alias-brand-primary'], {
+      light: '#123456',
+      dark: '#abcdef',
+    })
+    assert.deepEqual(calls[1].layer['--dsw-alias-state-business-primary'], {
+      light: '#123456',
+      dark: '#abcdef',
+    })
+    assert.deepEqual(calls[1].layer['--dsw-alias-button-info-fill'], {
       light: '#123456',
       dark: '#abcdef',
     })

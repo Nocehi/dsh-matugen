@@ -1,25 +1,122 @@
-export const BRIDGE_VERSION = 1
+export const BRIDGE_VERSION = 2
 
+/**
+ * Direct DMS Material-role -> DSH semantic-token mappings.
+ *
+ * This table deliberately targets DSH alias/specific tokens only. The stock
+ * --dsw-static-* palette remains an implementation detail of the built-in
+ * theme and is never rewritten by the bridge.
+ */
 export const DSH_TOKEN_ROLE_MAP = Object.freeze({
+  // Surface hierarchy.
   '--dsw-alias-bg-base': 'background',
   '--dsw-alias-bg-layer-1': 'surface_container_low',
   '--dsw-alias-bg-layer-2': 'surface_container',
-  '--dsw-alias-bg-overlay': 'surface_container_high',
+  '--dsw-alias-bg-layer-3': 'surface_container_high',
+  '--dsw-alias-bg-overlay': 'surface_container_highest',
+  '--dsw-alias-bg-module-platform': 'surface_container_low',
+  '--dsw-alias-bg-multi-select': 'secondary_container',
+  '--dsw-alias-button-contrast-fill': 'inverse_surface',
+  '--dsw-alias-button-elevated-fill': 'surface_container_low',
+  '--dsw-alias-button-floating-fill': 'surface_container_high',
+  '--dsw-alias-button-primary-dimmed': 'primary_container',
+  '--dsw-alias-interactive-bg-hover-solid': 'surface_container_high',
+  '--dsw-alias-markdown-citation': 'on_surface_variant',
+  '--dsw-alias-markdown-code-block-banner': 'surface_container_high',
+  '--dsw-alias-markdown-code-block': 'surface_container',
+  '--dsw-alias-markdown-code-segment-selected': 'surface_container_high',
+  '--dsw-alias-markdown-code-segment-unselected': 'surface_container',
+  '--dsw-alias-markdown-inline-code': 'surface_container_high',
+  '--dsw-alias-markdown-placeholder': 'surface_container_high',
+  '--dsw-alias-markdown-tag': 'surface_container_high',
+  '--dsw-alias-toast-bg': 'inverse_surface',
+  '--dsw-alias-tooltip-bg': 'inverse_surface',
+  '--dsw-specific-bubble-highlight': 'primary_container',
+  '--dsw-specific-bubble': 'surface_container_high',
+  '--dsw-specific-input-major': 'surface_container_high',
+  '--dsw-specific-login-input': 'surface_container',
+  '--dsw-specific-menu': 'surface_container_high',
+  '--dsw-specific-selector': 'secondary_container',
+  '--dsw-specific-sidebar-fill': 'surface_container_low',
+  '--dsw-specific-sidebar-nav-item-active-accent': 'primary_container',
+  '--dsw-specific-sidebar-nav-item-active': 'secondary_container',
+  '--dsw-specific-sidebar-nav-item-hover': 'surface_container_high',
+  '--dsw-specific-tip': 'surface_container_high',
+
+  // Foreground and outline hierarchy.
   '--dsw-alias-border-l1': 'outline_variant',
+  '--dsw-alias-border-l2-darkmode-thin': 'outline_variant',
   '--dsw-alias-border-l2': 'outline',
-  '--dsw-alias-brand-primary': 'primary',
+  '--dsw-alias-brand-primary-invert': 'on_primary',
+  '--dsw-alias-label-caption': 'outline',
+  '--dsw-alias-label-dimmed': 'on_surface_variant',
+  '--dsw-alias-label-primary-bluish': 'primary',
+  '--dsw-alias-label-primary-dimmed': 'on_surface_variant',
+  '--dsw-alias-label-primary-foreground': 'on_primary',
+  '--dsw-alias-label-primary-inverted': 'inverse_on_surface',
   '--dsw-alias-label-primary': 'on_surface',
   '--dsw-alias-label-secondary': 'on_surface_variant',
+  '--dsw-alias-label-tertiary': 'outline',
+
+  // Primary / secondary / tertiary accent families.
+  '--dsw-alias-brand-primary-new-colorprimary-new-color': 'primary',
+  '--dsw-alias-brand-primary': 'primary',
+  '--dsw-alias-brand-text': 'primary',
+  '--dsw-alias-button-ghost-active-border': 'secondary',
+  '--dsw-alias-button-ghost-active-fill': 'secondary_container',
+  '--dsw-alias-button-info-fill': 'primary',
+  '--dsw-alias-button-primary-fill': 'primary',
+  '--dsw-alias-state-business-primary': 'primary',
+  '--dsw-alias-state-business-tertiary': 'tertiary',
+
+  // Operational error semantics remain error semantics.
   '--dsw-alias-state-error-primary': 'error',
-  '--dsw-specific-sidebar-fill': 'surface_container_low',
+  '--dsw-alias-state-error-secondary': 'error',
+})
+
+/**
+ * Compatibility fallbacks for DMS palettes that expose the original v1 role
+ * floor but not every newer Material 3 family. Exact roles always win.
+ */
+export const MATERIAL_ROLE_FALLBACKS = Object.freeze({
+  surface_container_highest: Object.freeze(['surface_container_high']),
+  primary_container: Object.freeze(['primary']),
+  on_primary: Object.freeze(['on_surface']),
+  secondary: Object.freeze(['primary']),
+  secondary_container: Object.freeze(['surface_container_high']),
+  on_secondary_container: Object.freeze(['on_surface_variant', 'on_surface']),
+  tertiary: Object.freeze(['secondary', 'primary']),
+  inverse_surface: Object.freeze(['surface_container_high']),
+  inverse_on_surface: Object.freeze(['on_surface']),
+})
+
+/**
+ * DSH state-layer tokens do not have one-to-one Material scheme roles. They
+ * are derived from Material role pairs so hover/active chrome follows the
+ * wallpaper without inventing new static palette entries.
+ */
+export const DSH_TOKEN_DERIVATION_MAP = Object.freeze({
+  '--dsw-alias-bg-skeleton': Object.freeze({ kind: 'alpha', role: 'on_surface', opacity: 0.08 }),
+  '--dsw-alias-button-floating-hover': Object.freeze({ kind: 'mix', base: 'surface_container_high', overlay: 'on_surface', opacity: 0.08 }),
+  '--dsw-alias-button-ghost-active-hover': Object.freeze({ kind: 'mix', base: 'secondary_container', overlay: 'on_secondary_container', opacity: 0.08 }),
+  '--dsw-alias-button-info-hover': Object.freeze({ kind: 'mix', base: 'primary', overlay: 'on_primary', opacity: 0.08 }),
+  '--dsw-alias-button-primary-hover': Object.freeze({ kind: 'mix', base: 'primary', overlay: 'on_primary', opacity: 0.08 }),
+  '--dsw-alias-interactive-bg-active': Object.freeze({ kind: 'alpha', role: 'on_surface', opacity: 0.14 }),
+  '--dsw-alias-interactive-bg-hover-accent': Object.freeze({ kind: 'alpha', role: 'primary', opacity: 0.16 }),
+  '--dsw-alias-interactive-bg-hover-danger': Object.freeze({ kind: 'alpha', role: 'error', opacity: 0.15 }),
+  '--dsw-alias-interactive-bg-hover': Object.freeze({ kind: 'alpha', role: 'on_surface', opacity: 0.08 }),
 })
 
 const OPTIONAL_DANK16_MAP = Object.freeze({
   '--dsw-alias-state-success-primary': 'color2',
+  '--dsw-alias-state-warn-label': 'color3',
   '--dsw-alias-state-warn-primary': 'color3',
 })
 
-export const REQUIRED_DSH_TOKENS = Object.freeze(Object.keys(DSH_TOKEN_ROLE_MAP).sort())
+export const REQUIRED_DSH_TOKENS = Object.freeze([
+  ...Object.keys(DSH_TOKEN_ROLE_MAP),
+  ...Object.keys(DSH_TOKEN_DERIVATION_MAP),
+].sort())
 export const OPTIONAL_DSH_TOKENS = Object.freeze(Object.keys(OPTIONAL_DANK16_MAP).sort())
 
 const BRIDGE_TOKEN_SET = new Set([...REQUIRED_DSH_TOKENS, ...OPTIONAL_DSH_TOKENS])
@@ -35,7 +132,7 @@ const SHA256_K = Object.freeze([
   0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
   0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
   0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-  0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+  0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d,
   0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
   0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
   0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
@@ -74,11 +171,14 @@ function mode(document, name) {
 }
 
 function materialRole(document, role, name) {
-  const value = mode(document, name)[role]
-  if (value === undefined) {
-    throw new PaletteError('missing-role', `DMS palette.colors.${name}.${role} is required`)
+  const palette = mode(document, name)
+  const candidates = [role, ...(MATERIAL_ROLE_FALLBACKS[role] ?? [])]
+  for (const candidate of candidates) {
+    if (palette[candidate] !== undefined) {
+      return color(palette[candidate], `DMS palette.colors.${name}.${candidate}`)
+    }
   }
-  return color(value, `DMS palette.colors.${name}.${role}`)
+  throw new PaletteError('missing-role', `DMS palette.colors.${name}.${role} is required`)
 }
 
 function optionalDank16(document, role, name) {
@@ -91,6 +191,57 @@ function optionalDank16(document, role, name) {
   return color(entry[name], `DMS palette.dank16.${role}.${name}`)
 }
 
+function parseColor(value) {
+  const hex = value.slice(1)
+  return {
+    red: Number.parseInt(hex.slice(0, 2), 16),
+    green: Number.parseInt(hex.slice(2, 4), 16),
+    blue: Number.parseInt(hex.slice(4, 6), 16),
+    alpha: hex.length === 8 ? Number.parseInt(hex.slice(6, 8), 16) : 255,
+  }
+}
+
+function byteHex(value) {
+  return Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0')
+}
+
+function formatColor({ red, green, blue, alpha }) {
+  const roundedAlpha = Math.max(0, Math.min(255, Math.round(alpha)))
+  const rgb = `#${byteHex(red)}${byteHex(green)}${byteHex(blue)}`
+  return roundedAlpha === 255 ? rgb : `${rgb}${byteHex(roundedAlpha)}`
+}
+
+function mixColor(base, overlay, opacity) {
+  const a = parseColor(base)
+  const b = parseColor(overlay)
+  const inverse = 1 - opacity
+  return formatColor({
+    red: a.red * inverse + b.red * opacity,
+    green: a.green * inverse + b.green * opacity,
+    blue: a.blue * inverse + b.blue * opacity,
+    alpha: a.alpha * inverse + b.alpha * opacity,
+  })
+}
+
+function alphaColor(value, opacity) {
+  const parsed = parseColor(value)
+  return formatColor({ ...parsed, alpha: parsed.alpha * opacity })
+}
+
+function derivedMaterialColor(document, spec, name, token) {
+  if (spec.kind === 'alpha') {
+    return alphaColor(materialRole(document, spec.role, name), spec.opacity)
+  }
+  if (spec.kind === 'mix') {
+    return mixColor(
+      materialRole(document, spec.base, name),
+      materialRole(document, spec.overlay, name),
+      spec.opacity,
+    )
+  }
+  throw new PaletteError('invalid-derivation', `unsupported derivation for ${token}`)
+}
+
 /** Convert one DMS dms-colors.json document into a DSH light/dark override layer. */
 export function dmsPaletteToDshTokens(document) {
   mode(document, 'light')
@@ -101,6 +252,13 @@ export function dmsPaletteToDshTokens(document) {
     tokens[token] = Object.freeze({
       light: materialRole(document, role, 'light'),
       dark: materialRole(document, role, 'dark'),
+    })
+  }
+
+  for (const [token, spec] of Object.entries(DSH_TOKEN_DERIVATION_MAP)) {
+    tokens[token] = Object.freeze({
+      light: derivedMaterialColor(document, spec, 'light', token),
+      dark: derivedMaterialColor(document, spec, 'dark', token),
     })
   }
 

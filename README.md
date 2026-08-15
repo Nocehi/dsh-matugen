@@ -8,7 +8,7 @@ DMS atomically replaces dms-colors.json
         ↓
 DSH Host opens one bounded file descriptor
         ↓
-validate → Material roles → --dsw-* light/dark tokens
+validate → Material semantic roles → --dsw-* light/dark tokens
         ↓
 GET /dsh-matugen/palette
         ↓
@@ -24,29 +24,60 @@ theme/change → existing UI repaints
 No DOM patching, no edit to the DSH dist, no HMR requirement, no second daemon,
 and no writes back into DMS or Matugen state.
 
-## What v0.1 maps
+## Semantic theme bridge v2
 
-| DMS / Material role | DSH token |
+Bridge v2 treats DMS/Matugen as the semantic color authority rather than as a
+small accent patch. It overrides DSH **alias/specific tokens**, never the stock
+`--dsw-static-*` palette.
+
+The direct coverage includes:
+
+| Material family | Representative DSH consumers |
 |---|---|
-| `background` | `--dsw-alias-bg-base` |
-| `surface_container_low` | `--dsw-alias-bg-layer-1`, `--dsw-specific-sidebar-fill` |
-| `surface_container` | `--dsw-alias-bg-layer-2` |
-| `surface_container_high` | `--dsw-alias-bg-overlay` |
-| `outline_variant` | `--dsw-alias-border-l1` |
-| `outline` | `--dsw-alias-border-l2` |
-| `primary` | `--dsw-alias-brand-primary` |
-| `on_surface` | `--dsw-alias-label-primary` |
-| `on_surface_variant` | `--dsw-alias-label-secondary` |
-| `error` | `--dsw-alias-state-error-primary` |
-| optional `dank16.color2` | `--dsw-alias-state-success-primary` |
-| optional `dank16.color3` | `--dsw-alias-state-warn-primary` |
+| `background` / `surface_container_low` / `surface_container` / `surface_container_high` / `surface_container_highest` | page, layer surfaces, overlay, sidebar/rail, composer, menus, bubbles, code surfaces |
+| `primary` / `primary_container` / `on_primary` | active Chat/Trajectory accent, business state, send/primary buttons, branded text, selected accent surfaces |
+| `secondary` / `secondary_container` | ghost-active controls, selectors, secondary selected surfaces, sidebar active surface |
+| `tertiary` | DSH business-tertiary semantic accent |
+| `on_surface` / `on_surface_variant` / `outline` / `outline_variant` | primary/secondary/caption text and borders |
+| `inverse_surface` / `inverse_on_surface` | tooltip/toast and inverted foreground semantics |
+| `error` | DSH error state family |
+| optional `dank16.color2` | DSH success primary |
+| optional `dank16.color3` | DSH warning label + primary |
 
-Bridge protocol v1 requires the complete required token set and rejects unknown
-tokens. Every override contains both `light` and `dark` values. The browser
-recomputes SHA-256 over the canonical token layer before treating `revision` as
-content identity. `SubtleCrypto` is used when available; origins that do not
-expose it use the package's dependency-free SHA-256 fallback, so revision
-verification is never skipped.
+DSH state-layer colors that do not have one-to-one Material scheme roles are
+derived in the bridge. Hover/active layers use either Material-style alpha
+state layers or an 8% foreground mix over the semantic container, so those
+interactions track the wallpaper without creating a second static palette.
+
+Newer Material families prefer their exact DMS role. To remain compatible with
+DMS palettes that expose the original bridge-v1 role floor, v2 has bounded
+semantic fallbacks, for example:
+
+```text
+surface_container_highest → surface_container_high
+primary_container          → primary
+secondary                  → primary
+secondary_container        → surface_container_high
+tertiary                   → secondary → primary
+inverse_surface            → surface_container_high
+```
+
+The bridge payload itself is **protocol version 2** because the required DSH
+token corpus expanded. A v1 browser/host pair is deliberately not treated as
+wire-compatible with v2. Every override contains both `light` and `dark`
+values; the browser recomputes SHA-256 over the canonical token layer before
+using `revision` as content identity. `SubtleCrypto` is preferred, while
+ordinary HTTP origins use the dependency-free SHA-256 fallback.
+
+### Boundary
+
+This package only controls semantic theme variables. It intentionally does not
+rewrite `--dsw-static-deepseek-*`, `--dsw-static-blue-*`, or other stock scales.
+A component that directly pins one of those static variables or a literal blue
+still needs a component-side migration to an alias token. Examples in upstream
+DSH include the ongoing `StateDot`, the Chat turn-status shimmer, and reference
+chip literal colors. Those are presentation/theme-seam follow-ups, not reasons
+to make the semantic bridge mutate the static palette.
 
 ## DMS source
 
@@ -142,10 +173,11 @@ so Cordis Loader preserves their injection metadata.
 npm run check
 ```
 
-The ordinary gate uses Node only and covers mapping, protocol validation,
-digest verification with and without `SubtleCrypto`, bounded reads, conditional
-GET/HEAD, path non-disclosure, client diagnostics, dynamic-import rejection,
-built lazy-module geometry, and the post-disposal race.
+The ordinary gate uses Node only and covers semantic role coverage, derived
+state layers, legacy-role fallbacks, protocol validation, digest verification
+with and without `SubtleCrypto`, bounded reads, conditional GET/HEAD, path
+non-disclosure, client diagnostics, dynamic-import rejection, built lazy-module
+geometry, and the post-disposal race.
 
 CI also runs a separate exact `@deepseek-ai/dsh@0.1.0-rc.6` seam gate. It boots
 the real rc.6 Host `WebServer` and loads the Host plugin through the real Cordis
@@ -157,10 +189,14 @@ a full graphical DSH Web session.
 
 The remaining end-to-end dogfood gate is deliberately physical: compose this
 package into the current DSH Web deployment, change the DMS wallpaper/palette,
-and observe the real browser/iPad repaint and unload/reload behavior.
+and observe the real browser/iPad repaint and unload/reload behavior. For v2,
+physical inspection should specifically confirm that active tabs, caret/focus,
+primary/send controls, selectors, elevated surfaces, and Trajectory business
+accents follow the current Material scheme while error/success/warning retain
+their operational semantics.
 
 ## Scope
 
-`dsh-matugen` is the DMS provider + DSH token bridge. A future `dsh-rice` shell
-can consume the same palette contract while replacing layout, sidebar, and
-conversation presentation independently.
+`dsh-matugen` is the DMS provider + DSH semantic token compiler. `dsh-rice`
+consumes the same DSH theme variables while owning layout and presentation
+independently; it should not need to know which wallpaper produced them.
