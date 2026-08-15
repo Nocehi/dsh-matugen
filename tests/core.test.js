@@ -133,3 +133,24 @@ test('browser-side verification binds revision to canonical token bytes', async 
     error => error?.code === 'revision-mismatch',
   )
 })
+
+test('browser-side verification keeps SHA-256 integrity without SubtleCrypto', async () => {
+  const value = bridgePayload()
+  const verified = await verifyBridgePayload(value, {})
+  assert.equal(verified.revision, value.revision)
+
+  const tampered = {
+    ...value,
+    tokens: {
+      ...value.tokens,
+      '--dsw-alias-brand-primary': {
+        light: '#000000',
+        dark: '#000000',
+      },
+    },
+  }
+  await assert.rejects(
+    verifyBridgePayload(tampered, {}),
+    error => error?.code === 'revision-mismatch',
+  )
+})
