@@ -69,7 +69,7 @@ test('environment palette path goes through the same normalization as explicit c
   }
 })
 
-test('host snapshot hashes normalized semantic tokens and carries deterministic HCT data colors', async () => {
+test('host snapshot keeps semantic-token digest separate from deterministic whole-response cache identity', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-matugen-'))
   const path = join(root, 'dms-colors.json')
   try {
@@ -78,6 +78,10 @@ test('host snapshot hashes normalized semantic tokens and carries deterministic 
     await writeFile(path, JSON.stringify(palette(), null, 2))
     const second = await readDmsSnapshot(path)
     assert.equal(first.revision, second.revision)
+    assert.equal(first.snapshotRevision, second.snapshotRevision)
+    assert.match(first.revision, /^[0-9a-f]{64}$/u)
+    assert.match(first.snapshotRevision, /^[0-9a-f]{64}$/u)
+    assert.notEqual(first.snapshotRevision, first.revision)
     assert.equal(first.tokens['--dsw-alias-brand-primary'].dark, '#abcdef')
     assert.deepEqual(first.contextCategories, second.contextCategories)
     assert.deepEqual(Object.keys(first.contextCategories), Object.keys(CONTEXT_CATEGORY_SEEDS))
@@ -111,7 +115,7 @@ test('palette read is bounded before JSON parsing and rejects non-regular paths'
   }
 })
 
-test('read-only route returns normalized palette plus extended context colors, supports HEAD, and honors If-None-Match', async () => {
+test('read-only route uses whole-snapshot ETag while returning separately verified token revision', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-matugen-'))
   const path = join(root, 'dms-colors.json')
   try {
@@ -127,6 +131,8 @@ test('read-only route returns normalized palette plus extended context colors, s
     assert.equal(body.ok, true)
     assert.equal(body.provider, 'dms')
     assert.equal(body.tokens['--dsw-alias-bg-base'].light, '#ffffff')
+    assert.equal(get.headers.etag, `"${body.snapshotRevision}"`)
+    assert.notEqual(body.snapshotRevision, body.revision)
     assert.equal(body.contextCategories.system.seed, '#6366f1')
     assert.match(body.contextCategories.system.light, /^#[0-9a-f]{6}$/u)
     assert.match(body.contextCategories.system.dark, /^#[0-9a-f]{6}$/u)
@@ -139,6 +145,15 @@ test('read-only route returns normalized palette plus extended context colors, s
     assert.equal(unchanged.status, 304)
     assert.equal(unchanged.headers.etag, get.headers.etag)
     assert.equal(unchanged.body.byteLength, 0)
+
+    // The old semantic token digest is NOT the whole-response ETag anymore;
+    // an upgraded host must return 200 so new extended metadata reaches the browser.
+    const semanticOnly = fakeResponse()
+    await handler({
+      method: 'GET',
+      headers: { 'if-none-match': `"${body.revision}"` },
+    }, semanticOnly)
+    assert.equal(semanticOnly.status, 200)
 
     const weak = fakeResponse()
     await handler({
