@@ -4,10 +4,13 @@ import { test } from 'node:test'
 import {
   apply,
   BRIDGE_ROUTE,
+  contextCategoryCss,
   DIAGNOSTIC_INTERVAL_MS,
+  normalizeContextCategories,
   POLL_MS,
   SOURCE_ID,
 } from '../src/client.js'
+import { contextCategoryPalette } from '../src/context-categories.js'
 import { BRIDGE_VERSION, canonicalTokenJson, dmsPaletteToDshTokens } from '../src/core.js'
 
 function palette() {
@@ -38,10 +41,18 @@ function palette() {
   return { colors: { light, dark } }
 }
 
-function payload() {
+function payload({ snapshotRevision = 'a'.repeat(64), categories = contextCategoryPalette() } = {}) {
   const tokens = dmsPaletteToDshTokens(palette())
   const revision = createHash('sha256').update(canonicalTokenJson(tokens)).digest('hex')
-  return { ok: true, version: BRIDGE_VERSION, provider: 'dms', revision, tokens }
+  return {
+    ok: true,
+    version: BRIDGE_VERSION,
+    provider: 'dms',
+    revision,
+    snapshotRevision,
+    tokens,
+    contextCategories: categories,
+  }
 }
 
 function tick() {
@@ -60,6 +71,32 @@ test('browser transport geometry is a fixed package contract', () => {
   assert.equal(POLL_MS, 1000)
   assert.equal(SOURCE_ID, 'dsh-matugen')
   assert.equal(DIAGNOSTIC_INTERVAL_MS, 60_000)
+})
+
+test('context category CSS follows the DSH light/dark marker and only overrides known dsh-context seed marks', () => {
+  const categories = contextCategoryPalette()
+  assert.deepEqual(normalizeContextCategories(categories), categories)
+  const css = contextCategoryCss(categories)
+
+  assert.match(css, /:root\{--dsh-matugen-context-system:#[0-9a-f]{6};/u)
+  assert.match(css, /body\[data-ds-dark-theme\]\{--dsh-matugen-context-system:#[0-9a-f]{6};/u)
+  assert.match(css, /:where\(\.lc-root,\.lc-modal-card\) \.lc-stacked-seg\[style\*="#6366f1"\]/u)
+  assert.match(css, /\.lc-bar-stack > div\[style\*="rgb\(99, 102, 241\)"\]/u)
+  assert.match(css, /\.lc-node > i\[style\*="#14b8a6"\]/u)
+  assert.match(css, /background:var\(--dsh-matugen-context-assistant\) !important/u)
+  assert.doesNotMatch(css, /\.lc-turn/u)
+})
+
+test('context category payload rejects renamed or unknown identities without affecting the core bridge validator', () => {
+  const categories = contextCategoryPalette()
+  assert.throws(
+    () => normalizeContextCategories({ ...categories, system: { ...categories.system, seed: '#000000' } }),
+    /seed does not match/u,
+  )
+  assert.throws(
+    () => normalizeContextCategories({ ...categories, extra: categories.system }),
+    /exactly the six/u,
+  )
 })
 
 test('browser applies one digest-verified reversible ThemeRuntime override layer', async () => {
@@ -122,6 +159,67 @@ test('browser applies one digest-verified reversible ThemeRuntime override layer
   } finally {
     globalThis.fetch = originalFetch
     effectCleanup?.()
+  }
+})
+
+test('polling uses whole-snapshot revision and metadata-only changes do not reinstall ThemeRuntime tokens', async () => {
+  const originalFetch = globalThis.fetch
+  const originalSetTimeout = globalThis.setTimeout
+  const originalClearTimeout = globalThis.clearTimeout
+  const requests = []
+  const scheduled = []
+  let effectCleanup
+  let themeInstalls = 0
+  let responseIndex = 0
+  let resolveFirstInstall
+  let resolveSecondFetch
+  const firstInstall = new Promise(resolve => { resolveFirstInstall = resolve })
+  const secondFetch = new Promise(resolve => { resolveSecondFetch = resolve })
+  const responses = [
+    payload({ snapshotRevision: 'a'.repeat(64) }),
+    payload({ snapshotRevision: 'b'.repeat(64) }),
+  ]
+
+  globalThis.fetch = async (input, init) => {
+    requests.push({ input, init })
+    if (requests.length === 2) resolveSecondFetch()
+    const body = responses[Math.min(responseIndex, responses.length - 1)]
+    responseIndex += 1
+    return { ok: true, status: 200, async json() { return body } }
+  }
+  globalThis.setTimeout = (fn) => {
+    scheduled.push(fn)
+    return scheduled.length
+  }
+  globalThis.clearTimeout = () => {}
+
+  try {
+    const ctx = {
+      theme: {
+        overrideTokens() {
+          themeInstalls += 1
+          if (themeInstalls === 1) resolveFirstInstall()
+          return () => {}
+        },
+      },
+      effect(setup) { effectCleanup = setup() },
+    }
+    apply(ctx)
+    await firstInstall
+    assert.equal(themeInstalls, 1)
+    assert.equal(requests[0].init.headers, undefined)
+    assert.equal(scheduled.length, 1)
+
+    scheduled.shift()()
+    await secondFetch
+    await tick()
+    assert.deepEqual(requests[1].init.headers, { 'if-none-match': `"${'a'.repeat(64)}"` })
+    assert.equal(themeInstalls, 1, 'same semantic token revision must not reinstall ThemeRuntime layer')
+  } finally {
+    effectCleanup?.()
+    globalThis.fetch = originalFetch
+    globalThis.setTimeout = originalSetTimeout
+    globalThis.clearTimeout = originalClearTimeout
   }
 })
 

@@ -22,10 +22,10 @@
   "scripts": {
     "build": "node scripts/build-client.mjs",
     "prepare": "npm run build",
-    "test": "node --test tests/build-client.test.js tests/client-bundle.test.js tests/client.test.js tests/core.test.js tests/host.test.js",
+    "test": "node --test tests/build-client.test.js tests/client-bundle.test.js tests/client.test.js tests/context-categories.test.js tests/core.test.js tests/host.test.js",
     "test:artifact": "node --test tests/build-client.test.js tests/client-bundle.test.js",
     "test:rc6": "node --test tests/rc6-runtime.test.js",
-    "check": "node --check src/core.js && node --check src/index.js && node --check src/client.js && node --check scripts/build-client.mjs && npm run build && npm test"
+    "check": "node --check src/context-categories.js && node --check src/core.js && node --check src/index.js && node --check src/client.js && node --check scripts/build-client.mjs && npm run build && npm test"
   },
   "engines": {
     "node": ">=22"
@@ -35,6 +35,9 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Nocehi/dsh-matugen.git"
+  },
+  "dependencies": {
+    "@material/material-color-utilities": "0.4.0"
   },
   "dsh": {
     "client": {
