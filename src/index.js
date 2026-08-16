@@ -83,6 +83,15 @@ async function readBoundedRegularFile(path, maxBytes) {
   }
 }
 
+function canonicalContextCategoryJson(categories) {
+  const ordered = {}
+  for (const key of Object.keys(categories).sort()) {
+    const entry = categories[key]
+    ordered[key] = { seed: entry.seed, light: entry.light, dark: entry.dark }
+  }
+  return JSON.stringify(ordered)
+}
+
 export async function readDmsSnapshot(path, maxBytes = DEFAULT_MAX_BYTES) {
   const limit = byteLimit(maxBytes)
   const raw = await readBoundedRegularFile(path, limit)
@@ -93,12 +102,32 @@ export async function readDmsSnapshot(path, maxBytes = DEFAULT_MAX_BYTES) {
     throw new PaletteError('invalid-json', 'DMS palette is not valid JSON')
   }
   const tokens = dmsPaletteToDshTokens(document)
+  // `revision` remains the cryptographic identity of exactly the ThemeRuntime
+  // token layer. The browser re-computes this digest before installing it.
   const revision = createHash('sha256').update(canonicalTokenJson(tokens)).digest('hex')
+
   // Extended data colors are intentionally outside ThemeRuntime's --dsw-*
   // layer. Their hue/chroma identity is fixed; HCT tone supplies the light /
   // dark adaptation and the client scopes them to compatible data-viz surfaces.
   const contextCategories = contextCategoryPalette()
-  return Object.freeze({ version: BRIDGE_VERSION, provider: 'dms', revision, tokens, contextCategories })
+
+  // HTTP conditional caching must cover the WHOLE response, not just semantic
+  // tokens. Otherwise a category-policy-only change could keep the old token
+  // digest, receive 304 forever, and never reach an already-running browser.
+  const snapshotRevision = createHash('sha256')
+    .update(revision)
+    .update('\n')
+    .update(canonicalContextCategoryJson(contextCategories))
+    .digest('hex')
+
+  return Object.freeze({
+    version: BRIDGE_VERSION,
+    provider: 'dms',
+    revision,
+    snapshotRevision,
+    tokens,
+    contextCategories,
+  })
 }
 
 function responseJson(res, status, body, headers = {}, head = false) {
@@ -150,7 +179,7 @@ export function createPaletteHandler(config = {}) {
       return
     }
 
-    const etag = `"${snapshot.revision}"`
+    const etag = `"${snapshot.snapshotRevision}"`
     if (etagMatches(requestHeader(req, 'if-none-match'), etag)) {
       res.writeHead(304, {
         'cache-control': 'no-store',
