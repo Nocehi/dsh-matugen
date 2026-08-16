@@ -41,7 +41,7 @@ function palette() {
   return { colors: { light, dark } }
 }
 
-function payload() {
+function payload({ snapshotRevision = 'a'.repeat(64), categories = contextCategoryPalette() } = {}) {
   const tokens = dmsPaletteToDshTokens(palette())
   const revision = createHash('sha256').update(canonicalTokenJson(tokens)).digest('hex')
   return {
@@ -49,8 +49,9 @@ function payload() {
     version: BRIDGE_VERSION,
     provider: 'dms',
     revision,
+    snapshotRevision,
     tokens,
-    contextCategories: contextCategoryPalette(),
+    contextCategories: categories,
   }
 }
 
@@ -158,6 +159,62 @@ test('browser applies one digest-verified reversible ThemeRuntime override layer
   } finally {
     globalThis.fetch = originalFetch
     effectCleanup?.()
+  }
+})
+
+test('polling uses whole-snapshot revision and metadata-only changes do not reinstall ThemeRuntime tokens', async () => {
+  const originalFetch = globalThis.fetch
+  const originalSetTimeout = globalThis.setTimeout
+  const originalClearTimeout = globalThis.clearTimeout
+  const requests = []
+  const scheduled = []
+  let effectCleanup
+  let themeInstalls = 0
+  let responseIndex = 0
+  const responses = [
+    payload({ snapshotRevision: 'a'.repeat(64) }),
+    payload({ snapshotRevision: 'b'.repeat(64) }),
+  ]
+
+  globalThis.fetch = async (input, init) => {
+    requests.push({ input, init })
+    const body = responses[Math.min(responseIndex, responses.length - 1)]
+    responseIndex += 1
+    return { ok: true, status: 200, async json() { return body } }
+  }
+  globalThis.setTimeout = (fn) => {
+    scheduled.push(fn)
+    return scheduled.length
+  }
+  globalThis.clearTimeout = () => {}
+
+  try {
+    const ctx = {
+      theme: {
+        overrideTokens() {
+          themeInstalls += 1
+          return () => {}
+        },
+      },
+      effect(setup) { effectCleanup = setup() },
+    }
+    apply(ctx)
+    await tick()
+    await tick()
+    assert.equal(themeInstalls, 1)
+    assert.equal(requests[0].init.headers, undefined)
+    assert.equal(scheduled.length, 1)
+
+    scheduled.shift()()
+    await tick()
+    await tick()
+    assert.deepEqual(requests[1].init.headers, { 'if-none-match': `"${'a'.repeat(64)}"` })
+    assert.equal(themeInstalls, 1, 'same semantic token revision must not reinstall ThemeRuntime layer')
+  } finally {
+    effectCleanup?.()
+    globalThis.fetch = originalFetch
+    globalThis.setTimeout = originalSetTimeout
+    globalThis.clearTimeout = originalClearTimeout
   }
 })
 
