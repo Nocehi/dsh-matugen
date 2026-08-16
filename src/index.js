@@ -8,6 +8,7 @@ import {
   canonicalTokenJson,
   dmsPaletteToDshTokens,
 } from './core.js'
+import { contextCategoryPalette } from './context-categories.js'
 
 export const inject = ['webServer']
 export const BRIDGE_ROUTE = '/dsh-matugen/palette'
@@ -93,7 +94,11 @@ export async function readDmsSnapshot(path, maxBytes = DEFAULT_MAX_BYTES) {
   }
   const tokens = dmsPaletteToDshTokens(document)
   const revision = createHash('sha256').update(canonicalTokenJson(tokens)).digest('hex')
-  return Object.freeze({ version: BRIDGE_VERSION, provider: 'dms', revision, tokens })
+  // Extended data colors are intentionally outside ThemeRuntime's --dsw-*
+  // layer. Their hue/chroma identity is fixed; HCT tone supplies the light /
+  // dark adaptation and the client scopes them to compatible data-viz surfaces.
+  const contextCategories = contextCategoryPalette()
+  return Object.freeze({ version: BRIDGE_VERSION, provider: 'dms', revision, tokens, contextCategories })
 }
 
 function responseJson(res, status, body, headers = {}, head = false) {
@@ -168,7 +173,7 @@ export function createPaletteHandler(config = {}) {
   }
 }
 
-/** Host half: expose only normalized palette tokens on the fixed browser contract route. */
+/** Host half: expose normalized palette tokens and bounded extended data colors. */
 export function apply(ctx, config = {}) {
   const normalized = normalizeHostConfig(config)
   ctx.effect(
