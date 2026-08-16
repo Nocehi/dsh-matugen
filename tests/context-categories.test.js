@@ -1,11 +1,20 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { Hct, argbFromHex, hexFromArgb } from '@material/material-color-utilities'
 import {
   CONTEXT_CATEGORY_SEEDS,
   CONTEXT_CATEGORY_TONES,
   contextCategoryPalette,
 } from '../src/context-categories.js'
+
+// Independently resolve the same official MCU package to its concrete HCT /
+// hex modules. Do not import the package root: 0.4.0's root barrel currently
+// traverses an extensionless scheme import that Node 22 cannot resolve.
+const materialIndexUrl = import.meta.resolve('@material/material-color-utilities')
+const materialRootUrl = new URL('.', materialIndexUrl)
+const [{ Hct }, { argbFromHex, hexFromArgb }] = await Promise.all([
+  import(new URL('hct/hct.js', materialRootUrl)),
+  import(new URL('utils/string_utils.js', materialRootUrl)),
+])
 
 function hueDistance(a, b) {
   const raw = Math.abs(a - b) % 360
