@@ -4,10 +4,13 @@ import { test } from 'node:test'
 import {
   apply,
   BRIDGE_ROUTE,
+  contextCategoryCss,
   DIAGNOSTIC_INTERVAL_MS,
+  normalizeContextCategories,
   POLL_MS,
   SOURCE_ID,
 } from '../src/client.js'
+import { contextCategoryPalette } from '../src/context-categories.js'
 import { BRIDGE_VERSION, canonicalTokenJson, dmsPaletteToDshTokens } from '../src/core.js'
 
 function palette() {
@@ -41,7 +44,14 @@ function palette() {
 function payload() {
   const tokens = dmsPaletteToDshTokens(palette())
   const revision = createHash('sha256').update(canonicalTokenJson(tokens)).digest('hex')
-  return { ok: true, version: BRIDGE_VERSION, provider: 'dms', revision, tokens }
+  return {
+    ok: true,
+    version: BRIDGE_VERSION,
+    provider: 'dms',
+    revision,
+    tokens,
+    contextCategories: contextCategoryPalette(),
+  }
 }
 
 function tick() {
@@ -60,6 +70,32 @@ test('browser transport geometry is a fixed package contract', () => {
   assert.equal(POLL_MS, 1000)
   assert.equal(SOURCE_ID, 'dsh-matugen')
   assert.equal(DIAGNOSTIC_INTERVAL_MS, 60_000)
+})
+
+test('context category CSS follows the DSH light/dark marker and only overrides known dsh-context seed marks', () => {
+  const categories = contextCategoryPalette()
+  assert.deepEqual(normalizeContextCategories(categories), categories)
+  const css = contextCategoryCss(categories)
+
+  assert.match(css, /:root\{--dsh-matugen-context-system:#[0-9a-f]{6};/u)
+  assert.match(css, /body\[data-ds-dark-theme\]\{--dsh-matugen-context-system:#[0-9a-f]{6};/u)
+  assert.match(css, /:where\(\.lc-root,\.lc-modal-card\) \.lc-stacked-seg\[style\*="#6366f1"\]/u)
+  assert.match(css, /\.lc-bar-stack > div\[style\*="rgb\(99, 102, 241\)"\]/u)
+  assert.match(css, /\.lc-node > i\[style\*="#14b8a6"\]/u)
+  assert.match(css, /background:var\(--dsh-matugen-context-assistant\) !important/u)
+  assert.doesNotMatch(css, /\.lc-turn/u)
+})
+
+test('context category payload rejects renamed or unknown identities without affecting the core bridge validator', () => {
+  const categories = contextCategoryPalette()
+  assert.throws(
+    () => normalizeContextCategories({ ...categories, system: { ...categories.system, seed: '#000000' } }),
+    /seed does not match/u,
+  )
+  assert.throws(
+    () => normalizeContextCategories({ ...categories, extra: categories.system }),
+    /exactly the six/u,
+  )
 })
 
 test('browser applies one digest-verified reversible ThemeRuntime override layer', async () => {
