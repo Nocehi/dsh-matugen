@@ -17,6 +17,7 @@ const CONTEXT_CATEGORY_SEEDS = Object.freeze({
 })
 const CONTEXT_CATEGORY_KEYS = Object.freeze(Object.keys(CONTEXT_CATEGORY_SEEDS))
 const CATEGORY_HEX = /^#[0-9a-f]{6}$/u
+const SHA256 = /^[0-9a-f]{64}$/u
 const CATEGORY_SCOPE = ':where(.lc-root,.lc-modal-card)'
 const CATEGORY_TARGETS = Object.freeze([
   '.lc-stacked-seg',
@@ -121,13 +122,22 @@ export function contextCategoryCss(value) {
   return `:root{${light.join('')}}\nbody[data-ds-dark-theme]{${dark.join('')}}\n${rules.join('\n')}`
 }
 
+function snapshotRevisionOf(body, fallback) {
+  if (body.snapshotRevision === undefined) return fallback
+  if (typeof body.snapshotRevision !== 'string' || !SHA256.test(body.snapshotRevision)) {
+    throw new TypeError('dsh-matugen: snapshotRevision must be a lowercase SHA-256')
+  }
+  return body.snapshotRevision
+}
+
 /** Browser half: poll the fixed same-origin bridge and replace one ThemeRuntime override layer. */
 export function apply(ctx) {
   ctx.effect(() => {
     let stopped = false
     let timer
     let inFlight
-    let revision
+    let tokenRevision
+    let transportRevision
     let disposeLayer
     let categoryStyle
     let lastDiagnosticKey
@@ -185,7 +195,7 @@ export function apply(ctx) {
           method: 'GET',
           cache: 'no-store',
           credentials: 'same-origin',
-          headers: revision === undefined ? undefined : { 'if-none-match': `"${revision}"` },
+          headers: transportRevision === undefined ? undefined : { 'if-none-match': `"${transportRevision}"` },
           signal: controller.signal,
         })
         if (!active(controller)) return
@@ -208,30 +218,44 @@ export function apply(ctx) {
 
         const payload = await verifyBridgePayload(body)
         if (!active(controller)) return
-        if (payload.revision === revision) {
-          recovered()
-          return
+
+        let nextTransportRevision
+        let transportValid = true
+        try {
+          nextTransportRevision = snapshotRevisionOf(body, payload.revision)
+        } catch (error) {
+          transportValid = false
+          report('snapshot-revision:invalid', error)
         }
 
         let categories
+        let categoriesValid = true
         try {
           categories = normalizeContextCategories(body.contextCategories)
         } catch (error) {
+          categoriesValid = false
           report('context-categories:invalid', error)
         }
 
-        // ThemeRuntime validates the whole layer before replacing the existing
-        // source. If disposal races this synchronous install, immediately
-        // retire the just-created layer rather than leaving an orphan effect.
-        const nextDispose = ctx.theme.overrideTokens(SOURCE_ID, payload.tokens)
-        if (!active(controller)) {
-          nextDispose()
-          return
+        if (payload.revision !== tokenRevision) {
+          // ThemeRuntime validates the whole layer before replacing the existing
+          // source. If disposal races this synchronous install, immediately
+          // retire the just-created layer rather than leaving an orphan effect.
+          const nextDispose = ctx.theme.overrideTokens(SOURCE_ID, payload.tokens)
+          if (!active(controller)) {
+            nextDispose()
+            return
+          }
+          disposeLayer = nextDispose
+          tokenRevision = payload.revision
         }
-        disposeLayer = nextDispose
-        setContextCategories(categories)
-        revision = payload.revision
-        if (categories !== undefined || body.contextCategories === undefined) recovered()
+
+        if (categoriesValid) setContextCategories(categories)
+        // Only acknowledge the whole-response ETag after every optional
+        // extension in that response validated. Invalid metadata therefore
+        // gets another 200 on the next poll instead of being cached forever.
+        if (transportValid && categoriesValid) transportRevision = nextTransportRevision
+        if (transportValid && categoriesValid) recovered()
       } catch (error) {
         if (stopped || !active(controller) || abortError(error)) return
         reportError(error)
