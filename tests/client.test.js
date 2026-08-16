@@ -171,6 +171,10 @@ test('polling uses whole-snapshot revision and metadata-only changes do not rein
   let effectCleanup
   let themeInstalls = 0
   let responseIndex = 0
+  let resolveFirstInstall
+  let resolveSecondFetch
+  const firstInstall = new Promise(resolve => { resolveFirstInstall = resolve })
+  const secondFetch = new Promise(resolve => { resolveSecondFetch = resolve })
   const responses = [
     payload({ snapshotRevision: 'a'.repeat(64) }),
     payload({ snapshotRevision: 'b'.repeat(64) }),
@@ -178,6 +182,7 @@ test('polling uses whole-snapshot revision and metadata-only changes do not rein
 
   globalThis.fetch = async (input, init) => {
     requests.push({ input, init })
+    if (requests.length === 2) resolveSecondFetch()
     const body = responses[Math.min(responseIndex, responses.length - 1)]
     responseIndex += 1
     return { ok: true, status: 200, async json() { return body } }
@@ -193,20 +198,20 @@ test('polling uses whole-snapshot revision and metadata-only changes do not rein
       theme: {
         overrideTokens() {
           themeInstalls += 1
+          if (themeInstalls === 1) resolveFirstInstall()
           return () => {}
         },
       },
       effect(setup) { effectCleanup = setup() },
     }
     apply(ctx)
-    await tick()
-    await tick()
+    await firstInstall
     assert.equal(themeInstalls, 1)
     assert.equal(requests[0].init.headers, undefined)
     assert.equal(scheduled.length, 1)
 
     scheduled.shift()()
-    await tick()
+    await secondFetch
     await tick()
     assert.deepEqual(requests[1].init.headers, { 'if-none-match': `"${'a'.repeat(64)}"` })
     assert.equal(themeInstalls, 1, 'same semantic token revision must not reinstall ThemeRuntime layer')
