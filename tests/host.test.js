@@ -9,6 +9,7 @@ import {
   normalizeHostConfig,
   readDmsSnapshot,
 } from '../src/index.js'
+import { CONTEXT_CATEGORY_SEEDS } from '../src/context-categories.js'
 
 function palette() {
   const shared = {
@@ -68,7 +69,7 @@ test('environment palette path goes through the same normalization as explicit c
   }
 })
 
-test('host snapshot hashes normalized semantic tokens', async () => {
+test('host snapshot hashes normalized semantic tokens and carries deterministic HCT data colors', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-matugen-'))
   const path = join(root, 'dms-colors.json')
   try {
@@ -78,6 +79,13 @@ test('host snapshot hashes normalized semantic tokens', async () => {
     const second = await readDmsSnapshot(path)
     assert.equal(first.revision, second.revision)
     assert.equal(first.tokens['--dsw-alias-brand-primary'].dark, '#abcdef')
+    assert.deepEqual(first.contextCategories, second.contextCategories)
+    assert.deepEqual(Object.keys(first.contextCategories), Object.keys(CONTEXT_CATEGORY_SEEDS))
+    for (const [key, seed] of Object.entries(CONTEXT_CATEGORY_SEEDS)) {
+      assert.equal(first.contextCategories[key].seed, seed)
+      assert.match(first.contextCategories[key].light, /^#[0-9a-f]{6}$/u)
+      assert.match(first.contextCategories[key].dark, /^#[0-9a-f]{6}$/u)
+    }
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -103,7 +111,7 @@ test('palette read is bounded before JSON parsing and rejects non-regular paths'
   }
 })
 
-test('read-only route returns normalized palette, supports HEAD, and honors If-None-Match', async () => {
+test('read-only route returns normalized palette plus extended context colors, supports HEAD, and honors If-None-Match', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-matugen-'))
   const path = join(root, 'dms-colors.json')
   try {
@@ -119,6 +127,9 @@ test('read-only route returns normalized palette, supports HEAD, and honors If-N
     assert.equal(body.ok, true)
     assert.equal(body.provider, 'dms')
     assert.equal(body.tokens['--dsw-alias-bg-base'].light, '#ffffff')
+    assert.equal(body.contextCategories.system.seed, '#6366f1')
+    assert.match(body.contextCategories.system.light, /^#[0-9a-f]{6}$/u)
+    assert.match(body.contextCategories.system.dark, /^#[0-9a-f]{6}$/u)
 
     const unchanged = fakeResponse()
     await handler({
