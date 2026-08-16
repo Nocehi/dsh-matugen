@@ -12,9 +12,9 @@ validate → Material semantic roles → --dsw-* light/dark tokens
         ↓
 GET /dsh-matugen/palette
         ↓
-SHA-256 content identity + ETag
+token SHA-256 revision + whole-snapshot ETag
         ↓
-DSH browser verifies the digest
+DSH browser verifies the token digest and validates snapshot metadata
         ↓
 ctx.theme.overrideTokens("dsh-matugen", tokens)
         ↓
@@ -159,10 +159,12 @@ DSH's Web boot graph does not serialize a Host Loader row's config into its
 browser fiber, so making these values look configurable would create a false
 Host/Client contract. `palettePath` and `maxPaletteBytes` remain Host-only.
 
-After the first successful palette the browser sends `If-None-Match`; an
-unchanged semantic palette receives `304`. Transient failures keep the last good
-override layer. Repeated diagnostics are rate-limited in the browser console and
-a later successful sync emits one recovery message.
+After the first successful snapshot the browser sends `If-None-Match` using the
+whole-response `snapshotRevision`; an unchanged normalized snapshot receives
+`304`. The separate `revision` remains the browser-verified SHA-256 identity of
+the ThemeRuntime token layer. Transient failures keep the last good override
+layer. Repeated diagnostics are rate-limited in the browser console and a later
+successful sync emits one recovery message.
 
 The Client effect checks its lifecycle after every asynchronous boundary. If a
 response settles after the plugin was disposed, it cannot install an orphan
