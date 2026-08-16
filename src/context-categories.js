@@ -1,4 +1,15 @@
-import { Hct, argbFromHex, hexFromArgb } from '@material/material-color-utilities'
+// @material/material-color-utilities 0.4.0 exposes only its root barrel through
+// package exports. That barrel currently pulls scheme modules containing one
+// extensionless ESM import, which Node 22 refuses to resolve. Resolve the
+// official package root without executing it, then load only the HCT and hex
+// utility modules we actually use. Their dependency graph uses explicit .js
+// specifiers. This remains Host-only; none of it enters the DSH browser bundle.
+const materialIndexUrl = import.meta.resolve('@material/material-color-utilities')
+const materialRootUrl = new URL('.', materialIndexUrl)
+const [{ Hct }, { argbFromHex, hexFromArgb }] = await Promise.all([
+  import(new URL('hct/hct.js', materialRootUrl)),
+  import(new URL('utils/string_utils.js', materialRootUrl)),
+])
 
 /**
  * dsh-context 0.10.x category identities. Hue/chroma come from these stable
