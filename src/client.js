@@ -17,7 +17,7 @@ const CONTEXT_CATEGORY_SEEDS = Object.freeze({
 })
 const CONTEXT_CATEGORY_KEYS = Object.freeze(Object.keys(CONTEXT_CATEGORY_SEEDS))
 const CATEGORY_HEX = /^#[0-9a-f]{6}$/u
-const SHA256 = /^[0-9a-f]{64}$/u
+const SNAPSHOT_SHA256_PATTERN = /^[0-9a-f]{64}$/u
 const CATEGORY_SCOPE = ':where(.lc-root,.lc-modal-card)'
 const CATEGORY_TARGETS = Object.freeze([
   '.lc-stacked-seg',
@@ -124,7 +124,7 @@ export function contextCategoryCss(value) {
 
 function snapshotRevisionOf(body, fallback) {
   if (body.snapshotRevision === undefined) return fallback
-  if (typeof body.snapshotRevision !== 'string' || !SHA256.test(body.snapshotRevision)) {
+  if (typeof body.snapshotRevision !== 'string' || !SNAPSHOT_SHA256_PATTERN.test(body.snapshotRevision)) {
     throw new TypeError('dsh-matugen: snapshotRevision must be a lowercase SHA-256')
   }
   return body.snapshotRevision
