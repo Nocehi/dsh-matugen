@@ -30,15 +30,15 @@ function palette() {
   }
 }
 
-async function exactRc6Manifest(packageName) {
+async function exactRc7Manifest(packageName) {
   const path = require.resolve(`${packageName}/package.json`)
   const manifest = JSON.parse(await readFile(path, 'utf8'))
-  assert.equal(manifest.version, '0.1.0-rc.6')
+  assert.equal(manifest.version, '0.1.0-rc.7')
   return { path, manifest }
 }
 
-test('exact DSH rc.6 Loader preserves Host inject and serves the bridge route', async () => {
-  await exactRc6Manifest('@deepseek-ai/dsh')
+test('exact DSH rc.7 Loader preserves Host inject and serves the bridge route', async () => {
+  await exactRc7Manifest('@deepseek-ai/dsh')
   assert.equal(Object.prototype.hasOwnProperty.call(MatugenHost, 'default'), false)
   assert.deepEqual(MatugenHost.inject, ['webServer'])
 
@@ -48,7 +48,7 @@ test('exact DSH rc.6 Loader preserves Host inject and serves the bridge route', 
     import('@deepseek-ai/dsh-host-webserver'),
   ])
 
-  const temp = await mkdtemp(join(tmpdir(), 'dsh-matugen-rc6-'))
+  const temp = await mkdtemp(join(tmpdir(), 'dsh-matugen-rc7-'))
   const path = join(temp, 'dms-colors.json')
   const root = new Context()
   try {
@@ -85,8 +85,8 @@ test('exact DSH rc.6 Loader preserves Host inject and serves the bridge route', 
   }
 })
 
-test('exact DSH rc.6 theme package exposes the reversible overrideTokens contract', async () => {
-  const { path, manifest } = await exactRc6Manifest('@deepseek-ai/dsh-client-ui-theme')
+test('exact DSH rc.7 theme package exposes the reversible overrideTokens contract', async () => {
+  const { path, manifest } = await exactRc7Manifest('@deepseek-ai/dsh-client-ui-theme')
   assert.equal(manifest.dsh?.client?.platform, 'web')
   assert.ok(manifest.exports?.['./client'])
 
